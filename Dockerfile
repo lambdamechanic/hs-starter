@@ -13,7 +13,10 @@ RUN cabal install exe:hs-starter \
     --overwrite-policy=always
 
 FROM debian:bookworm-slim AS runtime
-ENV APP_HOME=/opt/app
+ENV APP_HOME=/opt/app \
+    OTEL_SERVICE_NAME=hs-starter \
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
+    OTEL_EXPORTER_OTLP_HEADERS=
 WORKDIR ${APP_HOME}
 
 RUN apt-get update \
