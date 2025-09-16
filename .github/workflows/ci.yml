@@ -46,7 +46,7 @@ jobs:
       - name: Test with coverage
         run: |
           export PATH="$(pg_config --bindir):$PATH"
-          cabal test --enable-coverage --enable-per-component --test-show-details=streaming
+          cabal test --enable-coverage --enable-per-component --disable-library-coverage --test-show-details=streaming
 
       - name: Check coverage ratchet
         run: ./scripts/check-coverage.sh
