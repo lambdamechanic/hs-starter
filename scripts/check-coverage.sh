@@ -13,11 +13,36 @@ if [[ -z "${THRESHOLD}" ]]; then
   exit 1
 fi
 
-TIX_FILE=$(find dist-newstyle -name 'hs-starter-tests.tix' -print -quit)
-if [[ -z "${TIX_FILE}" ]]; then
-  echo "Coverage .tix file not found. Run cabal test --enable-coverage first." >&2
+# Locate the generated .tix file. Prefer explicit env override, then dist-newstyle, then repo root.
+TIX_FILE_CANDIDATE=""
+if [[ -n "${HPCTIXFILE:-}" && -f "${HPCTIXFILE}" ]]; then
+  TIX_FILE_CANDIDATE="${HPCTIXFILE}"
+fi
+
+if [[ -z "${TIX_FILE_CANDIDATE}" ]]; then
+  TIX_FILE_CANDIDATE=$(find dist-newstyle -name 'hs-starter-tests.tix' -print -quit 2>/dev/null || true)
+fi
+
+if [[ -z "${TIX_FILE_CANDIDATE}" ]]; then
+  # Fall back to any single .tix in dist-newstyle if naming differs
+  mapfile -t TIX_CANDIDATES < <(find dist-newstyle -name '*.tix' -type f 2>/dev/null || true)
+  if [[ ${#TIX_CANDIDATES[@]} -eq 1 ]]; then
+    TIX_FILE_CANDIDATE="${TIX_CANDIDATES[0]}"
+  fi
+fi
+
+if [[ -z "${TIX_FILE_CANDIDATE}" ]]; then
+  # Cabal sometimes runs tests from the package root; HPC then writes the .tix here.
+  if [[ -f "hs-starter-tests.tix" ]]; then
+    TIX_FILE_CANDIDATE="hs-starter-tests.tix"
+  fi
+fi
+
+if [[ -z "${TIX_FILE_CANDIDATE}" ]]; then
+  echo "Coverage .tix file not found in dist-newstyle or repo root. Run cabal test --enable-coverage, or set HPCTIXFILE to the .tix path." >&2
   exit 1
 fi
+TIX_FILE="${TIX_FILE_CANDIDATE}"
 
 # Gather mix directories produced by cabal for both libraries and tests.
 mapfile -t HPC_DIRS < <(find dist-newstyle -type d -path '*extra-compilation-artifacts/hpc/vanilla/mix*')

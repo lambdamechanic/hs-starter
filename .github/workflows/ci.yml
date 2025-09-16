@@ -46,7 +46,10 @@ jobs:
       - name: Test with coverage
         run: |
           export PATH="$(pg_config --bindir):$PATH"
-          cabal test --enable-coverage --enable-per-component --disable-library-coverage --test-show-details=streaming
+          # Ensure .tix files land in a predictable location
+          export HPCTIXDIR="$(pwd)/dist-newstyle"
+          UNIT_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
+          cabal test --enable-coverage --enable-per-component --coverage-for="${UNIT_ID}" --test-show-details=streaming
 
       - name: Check coverage ratchet
         run: ./scripts/check-coverage.sh
