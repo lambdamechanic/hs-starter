@@ -5,7 +5,9 @@ module Starter.Database.Schema
 
 import Squeal.PostgreSQL (Public)
 
-import Starter.Database.Generated (AppSchema)
+import Starter.Database.Generated (Schema)
+
+type AppSchema = Schema
 
 -- | Public database containing the application schema.
 type AppDb = Public AppSchema
