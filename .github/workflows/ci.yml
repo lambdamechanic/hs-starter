@@ -26,7 +26,7 @@ jobs:
         uses: haskell-actions/setup@v2
         with:
           ghc-version: "9.8.4"
-          cabal-version: "3.10.3.0"
+          cabal-version: "3.12.1.0"
 
       - name: Cache cabal store
         uses: actions/cache@v4
@@ -48,6 +48,9 @@ jobs:
           export PATH="$(pg_config --bindir):$PATH"
           # Ensure .tix files land in a predictable location
           export HPCTIXDIR="$(pwd)/dist-newstyle"
+          which cabal
+          cabal --version
+          ghc --version
           UNIT_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
           if cabal test --help | grep -q -- "--coverage-for"; then
             echo "Using cabal --coverage-for=${UNIT_ID}"
