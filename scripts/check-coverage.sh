@@ -44,28 +44,12 @@ if [[ -z "${TIX_FILE_CANDIDATE}" ]]; then
 fi
 TIX_FILE="${TIX_FILE_CANDIDATE}"
 
-# Gather mix directories produced by cabal for both libraries and tests.
-mapfile -t HPC_DIRS < <(find dist-newstyle -type d -path '*extra-compilation-artifacts/hpc/vanilla/mix*')
+# Gather top-level mix directories produced by cabal for both libraries and tests.
+# We pass the parent "mix" dir to hpc; it resolves unit subdirs inside it.
+mapfile -t HPC_DIRS < <(find dist-newstyle -type d -path '*extra-compilation-artifacts/hpc/vanilla/mix' 2>/dev/null || true)
 if [[ ${#HPC_DIRS[@]} -eq 0 ]]; then
   echo "No HPC mix directories found." >&2
   exit 1
-fi
-
-# If possible, filter mix dirs to only this project's units to avoid counting deps.
-if [[ -f dist-newstyle/cache/plan.json ]]; then
-  UNIT_LIB_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json 2>/dev/null || echo "")
-  UNIT_TEST_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and (."component-name" | startswith("test:"))) | ."id"' dist-newstyle/cache/plan.json 2>/dev/null || echo "")
-  if [[ -n "${UNIT_LIB_ID}" || -n "${UNIT_TEST_ID}" ]]; then
-    FILTERED=()
-    for dir in "${HPC_DIRS[@]}"; do
-      if [[ ( -n "${UNIT_LIB_ID}" && "$dir" == *"${UNIT_LIB_ID}"* ) || ( -n "${UNIT_TEST_ID}" && "$dir" == *"${UNIT_TEST_ID}"* ) ]]; then
-        FILTERED+=("$dir")
-      fi
-    done
-    if [[ ${#FILTERED[@]} -gt 0 ]]; then
-      HPC_DIRS=("${FILTERED[@]}")
-    fi
-  fi
 fi
 
 HPC_ARGS=()
