@@ -52,6 +52,12 @@ if [[ ${#HPC_DIRS[@]} -eq 0 ]]; then
   exit 1
 fi
 
+echo "Using .tix file: ${TIX_FILE}"
+echo "Using hpc mix dirs:"
+for dir in "${HPC_DIRS[@]}"; do
+  echo "  - ${dir}"
+done
+
 HPC_ARGS=()
 for dir in "${HPC_DIRS[@]}"; do
   HPC_ARGS+=("--hpcdir=${dir}")
