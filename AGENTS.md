@@ -15,7 +15,13 @@ All database interaction must use Squeal; do not introduce alternative PostgreSQ
 
 ## Testing Guidelines
 `cabal test` runs tasty with falsify properties and tmp-postgres-backed smoke checks. Property suites live under `Starter.Tests.Property`; integration helpers use `Starter.Tests.Db`. When introducing new DB features, add tmp-postgres coverage or document why it is skipped. Target >85% coverage once the suite expands and note any regressions in PRs.
-For coverage runs use `cabal test --enable-coverage --enable-per-component --disable-library-coverage --test-show-details=streaming`, ensuring `pg_config --bindir` is on `PATH` so tmp-postgres can locate `initdb`.
+For coverage runs first ensure `dist-newstyle/cache/plan.json` exists (run `cabal build` once), then execute
+```
+export PATH="$(pg_config --bindir):$PATH"
+UNIT_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
+cabal test --enable-coverage --enable-per-component --coverage-for="${UNIT_ID}" --test-show-details=streaming
+```
+This instruments only the local library while keeping tmp-postgres happy on the `PATH`.
 
 ## Commit & Pull Request Guidelines
 Follow `type: summary` messages (examples: `feat: add oauth login route`, `chore: regenerate squeal schema`). PRs should summarise migrations applied, commands run (`cabal build`, `scripts/squealgen.sh`), and include screenshots or curl output for API changes. Cross-link tracking issues and call out any follow-ups.
