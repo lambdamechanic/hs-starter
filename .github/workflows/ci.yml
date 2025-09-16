@@ -64,5 +64,13 @@ jobs:
             cabal test --enable-coverage --enable-per-component --test-show-details=streaming
           fi
 
-      - name: Check coverage ratchet
-        run: ./scripts/check-coverage.sh
+      - name: Generate coverage report (Codecov JSON)
+        uses: 8c6794b6/hpc-codecov-action@v4
+        with:
+          target: cabal:hs-starter-tests
+          excludes: Main,Paths_hs_starter
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: codecov.json
