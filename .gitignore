@@ -1,0 +1,14 @@
+# Cabal build artifacts
+dist/
+dist-*/
+dist-newstyle/
+
+# Cabal helper files
+cabal.project.local
+cabal.project.local~
+
+# Editor and tooling
+*.swp
+*.swo
+.idea/
+.vscode/
