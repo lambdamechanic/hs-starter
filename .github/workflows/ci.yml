@@ -49,7 +49,13 @@ jobs:
           # Ensure .tix files land in a predictable location
           export HPCTIXDIR="$(pwd)/dist-newstyle"
           UNIT_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
-          cabal test --enable-coverage --enable-per-component --coverage-for="${UNIT_ID}" --test-show-details=streaming
+          if cabal test --help | grep -q -- "--coverage-for"; then
+            echo "Using cabal --coverage-for=${UNIT_ID}"
+            cabal test --enable-coverage --enable-per-component --coverage-for="${UNIT_ID}" --test-show-details=streaming
+          else
+            echo "cabal does not support --coverage-for; using legacy coverage flags"
+            cabal test --enable-coverage --enable-per-component --test-show-details=streaming
+          fi
 
       - name: Check coverage ratchet
         run: ./scripts/check-coverage.sh
