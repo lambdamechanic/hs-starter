@@ -18,7 +18,7 @@ jobs:
 
       - id: setup
         name: Setup GHC and Cabal
-        uses: haskell/actions/setup@v2
+        uses: haskell-actions/setup@v2
         with:
           ghc-version: "9.8.4"
           cabal-version: "3.10.3.0"
@@ -26,7 +26,7 @@ jobs:
       - name: Cache cabal store
         uses: actions/cache@v4
         with:
-          path: ~/.cabal/store
+          path: ${{ steps.setup.outputs.cabal-store }}
           key: cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('cabal.project', 'hs-starter.cabal') }}
           restore-keys: |
             cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
