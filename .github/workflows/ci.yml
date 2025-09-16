@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql libpq-dev
+
       - id: setup
         name: Setup GHC and Cabal
         uses: haskell-actions/setup@v2
@@ -38,5 +43,10 @@ jobs:
       - name: Build
         run: cabal build all
 
-      - name: Test
-        run: cabal test
+      - name: Test with coverage
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          cabal test --enable-coverage --test-show-details=streaming
+
+      - name: Check coverage ratchet
+        run: ./scripts/check-coverage.sh
