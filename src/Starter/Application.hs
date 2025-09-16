@@ -15,17 +15,13 @@ import OpenTelemetry.Trace
   , initializeGlobalTracerProvider
   , shutdownTracerProvider
   )
+import Starter.Database.Connection (loadDbConfigFromEnv)
+import Starter.Env (AppEnv (..))
+import Starter.OAuth.Types (OAuthProfile)
 import Starter.Server (app, apiProxy)
 import System.Environment (lookupEnv, setEnv)
 import Text.Read (readMaybe)
 import UnliftIO.Exception (bracket)
-
-data AppEnv = AppEnv
-  { appPort :: Int
-  , otelServiceName :: Text
-  , otelCollectorEndpoint :: Maybe String
-  , otelCollectorHeaders :: Maybe String
-  }
 
 runApp :: IO ()
 runApp = do
@@ -45,6 +41,7 @@ loadAppEnv = do
   serviceNameEnv <- lookupEnv "OTEL_SERVICE_NAME"
   collectorEndpoint <- lookupEnv "OTEL_EXPORTER_OTLP_ENDPOINT"
   collectorHeaders <- lookupEnv "OTEL_EXPORTER_OTLP_HEADERS"
+  dbConfig <- loadDbConfigFromEnv
   let appPort = fromMaybe 8080 (portEnv >>= readMaybe)
       otelServiceName = maybe "hs-starter" Text.pack serviceNameEnv
   when (isNothing serviceNameEnv) $ setEnv "OTEL_SERVICE_NAME" (Text.unpack otelServiceName)
@@ -54,8 +51,14 @@ loadAppEnv = do
       , otelServiceName
       , otelCollectorEndpoint = collectorEndpoint
       , otelCollectorHeaders = collectorHeaders
+      , dbConfig
+      , authorizeLogin = defaultAuthorizeLogin
       }
 
 withTracerProvider :: (TracerProvider -> IO a) -> IO a
 withTracerProvider =
   bracket initializeGlobalTracerProvider shutdownTracerProvider
+
+-- | Default authorization hook that approves all logins.
+defaultAuthorizeLogin :: OAuthProfile -> IO Bool
+defaultAuthorizeLogin _profile = pure True

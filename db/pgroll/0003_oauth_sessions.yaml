@@ -1,0 +1,36 @@
+operations:
+  - add_column:
+      table: users
+      column:
+        name: allowed
+        type: boolean
+        default: true
+  - add_column:
+      table: users
+      column:
+        name: last_login_at
+        type: timestamptz
+        nullable: true
+  - add_column:
+      table: oauth_login_events
+      column:
+        name: allowed
+        type: boolean
+        default: true
+  - create_table:
+      name: oauth_sessions
+      columns:
+        - name: state
+          type: text
+          pk: true
+        - name: code_verifier
+          type: text
+        - name: provider
+          type: text
+        - name: redirect_uri
+          type: text
+        - name: requested_scopes
+          type: text
+        - name: created_at
+          type: timestamptz
+          default: now()

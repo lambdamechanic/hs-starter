@@ -11,6 +11,7 @@ Format Haskell with `ormolu` (`cabal run ormolu -- --mode inplace $(git ls-files
 
 ## Database & Migrations Workflow
 Author schema changes in pgroll YAML first and append new files to `db/pgroll/.ledger`. After running migrations (see `scripts/squealgen.sh`), regenerate Haskell types with the upstream `squealgen` CLI. Never hand-edit `Starter.Database.Generated`; treat it as a build artifact.
+All database interaction must use Squeal; do not introduce alternative PostgreSQL clients.
 
 ## Testing Guidelines
 `cabal test` runs tasty with falsify properties and tmp-postgres-backed smoke checks. Property suites live under `Starter.Tests.Property`; integration helpers use `Starter.Tests.Db`. When introducing new DB features, add tmp-postgres coverage or document why it is skipped. Target >85% coverage once the suite expands and note any regressions in PRs.
