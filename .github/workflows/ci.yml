@@ -51,10 +51,14 @@ jobs:
           which cabal
           cabal --version
           ghc --version
-          UNIT_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
+          UNIT_LIB_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
+          UNIT_TEST_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and (."component-name" | startswith("test:"))) | ."id"' dist-newstyle/cache/plan.json)
           if cabal test --help | grep -q -- "--coverage-for"; then
-            echo "Using cabal --coverage-for=${UNIT_ID}"
-            cabal test --enable-coverage --enable-per-component --coverage-for="${UNIT_ID}" --test-show-details=streaming
+            echo "Using cabal --coverage-for=${UNIT_LIB_ID} and test=${UNIT_TEST_ID}"
+            cabal test --enable-coverage --enable-per-component \
+              --coverage-for="${UNIT_LIB_ID}" \
+              --coverage-for="${UNIT_TEST_ID}" \
+              --test-show-details=streaming
           else
             echo "cabal does not support --coverage-for; using legacy coverage flags"
             cabal test --enable-coverage --enable-per-component --test-show-details=streaming
