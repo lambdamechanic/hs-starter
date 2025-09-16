@@ -12,14 +12,14 @@ import Data.Maybe (isNothing)
 import qualified Roboservant.Server as Robo
 import Roboservant.Types (Atom (..), Breakdown)
 import Roboservant.Types.Config (defaultConfig)
-import Starter.Server (Api, HealthStatus, server)
+import Starter.Server (HealthApi, HealthStatus, healthServer)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase)
 
 -- | Run the Roboservant fuzzer against the health check API.
 fuzzesHealthcheck :: IO ()
 fuzzesHealthcheck = do
-  result <- Robo.fuzz @Api server defaultConfig
+  result <- Robo.fuzz @HealthApi healthServer defaultConfig
   assertBool "roboservant found a counterexample" (isNothing result)
 
 tests :: TestTree
