@@ -1,0 +1,6 @@
+operations:
+  - sql:
+      up: |
+        -- Baseline placeholder migration. Add tables in subsequent revisions.
+      down: |
+        -- Baseline placeholder migration rollback.
