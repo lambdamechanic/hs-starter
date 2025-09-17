@@ -22,3 +22,7 @@ The service connects to Postgres using either a `DATABASE_URL` (preferred, e.g. 
 - Or set: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and optionally `DB_PASSWORD`.
 
 When both are present, `DATABASE_URL` takes precedence.
+
+## Deployment
+
+Dokku executes the pgroll migrations during each deploy via `app.json`'s `scripts.dokku.predeploy` hook. Ensure the linked Postgres service exports a `DATABASE_URL`; the container image bundles the `pgroll` CLI so the hook can run `pgroll migrate db/pgroll --postgres-url "$DATABASE_URL" --schema public --pgroll-schema pgroll --complete` before web processes start.

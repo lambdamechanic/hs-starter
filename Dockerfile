@@ -1,4 +1,5 @@
 FROM ubuntu:22.04 AS build
+ARG PGROLL_VERSION=0.14.2
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -31,6 +32,10 @@ RUN cabal install exe:hs-starter \
     --install-method=copy \
     --overwrite-policy=always
 
+RUN curl -sSL "https://github.com/xataio/pgroll/releases/download/v${PGROLL_VERSION}/pgroll.linux.amd64" \
+      -o /opt/app/bin/pgroll \
+    && chmod +x /opt/app/bin/pgroll
+
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     APP_HOME=/opt/app \
@@ -46,6 +51,8 @@ RUN apt-get update \
  && update-ca-certificates
 
 COPY --from=build /opt/app/bin/hs-starter /usr/local/bin/hs-starter
+COPY --from=build /opt/app/bin/pgroll /usr/local/bin/pgroll
+COPY --from=build /workspace/db/pgroll ${APP_HOME}/db/pgroll
 
 EXPOSE 8080
 ENTRYPOINT ["hs-starter"]
