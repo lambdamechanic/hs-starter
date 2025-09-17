@@ -1,4 +1,6 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -20,8 +22,13 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as Text
 import Control.Exception (SomeException, catch)
 import Starter.Env (AppEnv (..))
-import Starter.Database.Connection (DbConfig (..))
+import Starter.Database.Connection (DbConfig (..), withAppConnection)
 import Starter.OAuth.Types (OAuthProfile)
+import Squeal.PostgreSQL
+import Squeal.PostgreSQL.Definition.Table (createTableIfNotExists)
+import Squeal.PostgreSQL.Definition.Constraint (primaryKey, unique)
+import Squeal.PostgreSQL.Expression.Type (text, bool, timestamptz, nullable, notNullable, default_, serial)
+import Squeal.PostgreSQL.Expression.Time (now)
 
 -- | Run the Roboservant fuzzer against the health check API.
 fuzzesHealthcheck :: IO ()
@@ -58,6 +65,25 @@ fuzzesHealthcheck = do
             , dbConfig = dbCfg
             , authorizeLogin = const (pure True)
             }
+      -- Ensure minimal schema required for health check exists.
+      let createUsers =
+            createTableIfNotExists (#public ! #users)
+              ( serial `as` #id
+                  :* (text & nullable) `as` #email
+                  :* (text & nullable) `as` #display_name
+                  :* (text & nullable) `as` #avatar_url
+                  :* (timestamptz & notNullable & default_ now) `as` #created_at
+                  :* (timestamptz & notNullable & default_ now) `as` #updated_at
+                  :* (text & notNullable) `as` #provider
+                  :* (text & notNullable) `as` #subject
+                  :* (bool & notNullable) `as` #allowed
+                  :* (timestamptz & nullable) `as` #last_login_at
+              )
+              ( primaryKey #id `as` #users_pkey
+                  :* unique (#provider :* #subject :* Nil) `as` #users_provider_subject_key
+                  :* Nil
+              )
+      _ <- withAppConnection dbCfg (define createUsers)
       result <- Robo.fuzz @HealthApi (healthServer env) defaultConfig
       Temp.stop db
       assertBool "roboservant found a counterexample" (isNothing result)
