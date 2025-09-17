@@ -85,23 +85,46 @@ fuzzesHealthcheck = do
 -- | Apply the pgroll migrations in db/pgroll to the given connection.
 applyPgrollMigrations :: DbConfig -> IO ()
 applyPgrollMigrations cfg = do
-  let DbConfig { dbHost, dbPort, dbName, dbUser, dbPassword } = cfg
+  let DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = cfg
   let migrationsDir = "db/pgroll"
+      hostStr = Text.unpack dbHost
+      userStr = Text.unpack dbUser
+      dbStr = Text.unpack dbName
+      passStr = maybe "" (\p -> ":" <> Text.unpack p) dbPassword
       url =
-        "postgres://"
-          <> Text.unpack dbUser
-          <> maybe "" (\p -> ":" <> Text.unpack p) dbPassword
-          <> "@" <> Text.unpack dbHost
-          <> ":" <> show dbPort
-          <> "/" <> Text.unpack dbName
-          <> "?sslmode=disable"
+        if not (null hostStr) && head hostStr == '/'
+          then
+            -- Use unix socket via query params
+            "postgres://"
+              <> userStr
+              <> passStr
+              <> "/" -- empty authority, db after single slash
+              <> dbStr
+              <> "?host="
+              <> hostStr
+              <> "&port="
+              <> show dbPort
+              <> "&sslmode=disable"
+          else
+            "postgres://"
+              <> userStr
+              <> passStr
+              <> "@"
+              <> hostStr
+              <> ":"
+              <> show dbPort
+              <> "/"
+              <> dbStr
+              <> "?sslmode=disable"
   putStrLn ("pgroll: init public schema and state schema pgroll")
-  (codeInit, outInit, errInit) <- readProcessWithExitCode "pgroll" ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"] ""
+  -- Ensure pgroll exists and log version
+  _ <- readProcessWithExitCode "env" ["PGCONNECT_TIMEOUT=5","pgroll","--version"] ""
+  (codeInit, outInit, errInit) <- readProcessWithExitCode "env" ["PGCONNECT_TIMEOUT=5","pgroll","init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"] ""
   case codeInit of
     ExitSuccess -> pure ()
     _ -> putStrLn ("pgroll init returned non-success (continuing):\n" <> outInit <> errInit)
   putStrLn ("pgroll: migrating from " <> migrationsDir)
-  (codeMig, outMig, errMig) <- readProcessWithExitCode "pgroll" ["migrate", migrationsDir, "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll", "--complete"] ""
+  (codeMig, outMig, errMig) <- readProcessWithExitCode "env" ["PGCONNECT_TIMEOUT=5","pgroll","migrate", migrationsDir, "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll", "--complete"] ""
   case codeMig of
     ExitSuccess -> putStrLn "pgroll: migrations applied successfully"
     _ -> assertFailure ("pgroll migrate failed:\nSTDOUT:\n" <> outMig <> "\nSTDERR:\n" <> errMig)

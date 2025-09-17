@@ -53,10 +53,12 @@ jobs:
         run: cabal build all
 
       - name: Test with coverage
+        timeout-minutes: 20
         run: |
           export PATH="$(pg_config --bindir):$PATH"
           # Ensure .tix files land in a predictable location
           export HPCTIXDIR="$(pwd)/dist-newstyle"
+          export PGCONNECT_TIMEOUT=5
           which cabal
           cabal --version
           ghc --version
