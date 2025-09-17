@@ -16,11 +16,11 @@ import Roboservant.Types (Atom (..), Breakdown)
 import Roboservant.Types.Config (defaultConfig)
 import Starter.Server (HealthApi, HealthStatus, healthServer)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase)
+import Test.Tasty.HUnit (assertBool, testCase, assertFailure)
 import qualified Database.Postgres.Temp as Temp
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as Text
-import Control.Exception (SomeException, catch)
+import Control.Exception (SomeException, catch, try, displayException)
 import Starter.Env (AppEnv (..))
 import Starter.Database.Connection (DbConfig (..), withAppConnection)
 import Starter.OAuth.Types (OAuthProfile)
@@ -34,12 +34,10 @@ import Squeal.PostgreSQL.Expression.Time (now)
 fuzzesHealthcheck :: IO ()
 fuzzesHealthcheck = do
   -- Boot a temporary Postgres for exercising the health endpoint
-  startResult <- catch (Right <$> Temp.start) (\(_ :: SomeException) -> pure (Left "exc"))
+  startResult <- try @SomeException Temp.start
   case startResult of
-    Left _ -> pure ()
-    Right (Left _err) ->
-      -- tmp-postgres reported unavailable; skip test
-      pure ()
+    Left exc -> assertFailure ("tmp-postgres failed to start: " <> displayException exc)
+    Right (Left err) -> assertFailure ("tmp-postgres unavailable: " <> show err)
     Right (Right db) -> do
       let connStr = B8.unpack (Temp.toConnectionString db)
           kvs = map (break (=='=')) (words connStr)
@@ -65,6 +63,10 @@ fuzzesHealthcheck = do
             , dbConfig = dbCfg
             , authorizeLogin = const (pure True)
             }
+      putStrLn ("tmp-postgres connection: host=" <> Text.unpack (dbHost dbCfg)
+               <> " port=" <> show (dbPort dbCfg)
+               <> " dbname=" <> Text.unpack (dbName dbCfg)
+               <> " user=" <> Text.unpack (dbUser dbCfg))
       -- Ensure minimal schema required for health check exists.
       let createUsers =
             createTableIfNotExists (#public ! #users)
@@ -83,8 +85,16 @@ fuzzesHealthcheck = do
                   :* unique (#provider :* #subject :* Nil) `as` #users_provider_subject_key
                   :* Nil
               )
-      _ <- withAppConnection dbCfg (define createUsers)
+      ddlResult <- try @SomeException (withAppConnection dbCfg (define createUsers))
+      case ddlResult of
+        Left exc -> do
+          putStrLn ("failed to ensure users table: " <> displayException exc)
+          assertFailure ("failed to define users table: " <> displayException exc)
+        Right _ -> pure ()
       result <- Robo.fuzz @HealthApi (healthServer env) defaultConfig
+      case result of
+        Nothing -> putStrLn "roboservant: no counterexamples found"
+        Just _  -> putStrLn "roboservant: counterexample found"
       Temp.stop db
       assertBool "roboservant found a counterexample" (isNothing result)
 
