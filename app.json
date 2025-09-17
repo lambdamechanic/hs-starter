@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dokku": {
-      "predeploy": "bash -lc 'set -euo pipefail && pgroll migrate db/pgroll --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --complete'"
+      "predeploy": "bash -lc 'set -euo pipefail && pgroll init --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll && pgroll migrate db/pgroll --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --complete'"
     }
   }
 }
