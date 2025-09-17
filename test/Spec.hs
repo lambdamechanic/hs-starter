@@ -3,7 +3,7 @@ module Main (main) where
 import Starter.Prelude
 import Starter.Tests.Db qualified as Db
 import Starter.Tests.Property qualified as Property
-import Starter.Tests.Roboservant qualified as Roboservant
+import Starter.Tests.Health qualified as Health
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -15,7 +15,7 @@ allTests =
   testGroup
     "Starter"
     [ testCase "bootstrap sanity" (True @?= True),
-      Roboservant.tests,
+      Health.tests,
       Property.tests,
       Db.tests
     ]
