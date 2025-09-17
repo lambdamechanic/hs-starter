@@ -11,6 +11,7 @@ module Starter.Database.OAuth
   , deleteSession
   , upsertUser
   , insertLoginEvent
+  , selectUserCount
   , OAuthSessionRow (..)
   , DbUserRow (..)
   ) where
@@ -19,6 +20,7 @@ import Starter.Prelude hiding (from)
 
 import Data.Aeson (Value)
 import Data.Time (UTCTime)
+import Data.Int (Int64)
 import qualified GHC.Generics as GHC
 import qualified Generics.SOP as SOP
 import Squeal.PostgreSQL
@@ -130,3 +132,11 @@ insertLoginEvent =
     )
     OnConflictDoRaise
     (Returning_ Nil)
+
+-- | Simple count of all users, useful for DB health checks.
+selectUserCount :: Statement AppDb () (Only Int64)
+selectUserCount =
+  query $
+    select_
+      (countAll `as` #fromOnly)
+      (from (table (#public ! #users)))
