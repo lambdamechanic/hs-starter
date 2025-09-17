@@ -10,8 +10,7 @@ RUN apt-get update \
 
 # Install ghcup, GHC and Cabal
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
-    GHCUP_USE_XDG_DIRS=1 \
-    PATH=/root/.ghcup/bin:$PATH
+    PATH=/root/.ghcup/bin:/root/.local/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh \
  && ghcup install ghc 9.8.4 \
  && ghcup set ghc 9.8.4 \
