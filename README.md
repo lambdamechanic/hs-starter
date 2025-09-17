@@ -13,3 +13,12 @@ export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY"
 ```
 
 These variables are read during startup and passed through to the OpenTelemetry SDK; adjust them to point at your collector of choice.
+
+## Database configuration
+
+The service connects to Postgres using either a `DATABASE_URL` (preferred, e.g. when linking a Dokku Postgres service) or individual `DB_*` variables. Supported forms:
+
+- `DATABASE_URL=postgres://USER[:PASSWORD]@HOST[:PORT]/DBNAME[?params]`
+- Or set: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and optionally `DB_PASSWORD`.
+
+When both are present, `DATABASE_URL` takes precedence.
