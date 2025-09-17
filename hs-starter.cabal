@@ -58,6 +58,7 @@ executable hs-starter
     import: common-settings
     hs-source-dirs: app
     main-is:          Main.hs
+    ghc-options:      -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         hs-starter
 
