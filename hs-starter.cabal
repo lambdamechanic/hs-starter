@@ -34,7 +34,10 @@ library
         Starter.Prelude
         Starter.Server
     other-modules:
+        Paths_hs_starter
         Starter.Database.Generated
+    autogen-modules:
+        Paths_hs_starter
     build-depends:
         aeson >=2.2 && <2.3,
         bytestring >=0.11 && <0.13,
@@ -52,7 +55,8 @@ library
         unliftio >=0.2 && <0.3,
         uuid >=1.3 && <1.4,
         wai >=3.2 && <3.3,
-        warp >=3.4 && <3.5
+        warp >=3.4 && <3.5,
+        unordered-containers >=0.2 && <0.3
 
 executable hs-starter
     import: common-settings
@@ -93,4 +97,5 @@ test-suite hs-starter-tests
         wai-extra >=3.1 && <3.2,
         bytestring >=0.11 && <0.13,
         text >=2.0 && <2.2,
-        process >=1.6 && <1.7
+        process >=1.6 && <1.7,
+        unordered-containers >=0.2 && <0.3

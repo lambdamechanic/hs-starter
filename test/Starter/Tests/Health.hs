@@ -1,24 +1,27 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 module Starter.Tests.Health
   ( tests,
   )
 where
 
-import Control.Exception (SomeException, try)
-import Data.ByteString.Char8 qualified as BS
+import Control.Exception (finally)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Types (Object, Parser, parseEither, withObject, (.:))
 import Data.Maybe (fromMaybe)
+import Data.HashMap.Strict qualified as HashMap
 import Data.Text qualified as Text
 import Network.HTTP.Types (methodGet, status200)
-import Network.Wai (Application, defaultRequest, rawPathInfo, requestMethod, pathInfo)
+import Network.Wai (Application, rawPathInfo, requestMethod, pathInfo)
 import Network.Wai.Test
 import Starter.Database.Connection (DbConfig (..))
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
-import Starter.Server (HealthStatus (..), app)
+import Starter.Server (HealthCheckReport (..), HealthStatus (..), app)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase)
+import Test.Tasty.HUnit (assertBool, assertFailure, (@?=), testCase)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -35,11 +38,9 @@ healthOk = do
   case mCfg of
     Left msg -> putStrLn ("docker postgres unavailable, skipping health test: " <> msg)
     Right (dbCfg, container) -> do
-      -- Apply migrations with pgroll
       mig <- applyPgrollMigrations dbCfg
       case mig of
         Left err -> do
-          -- Cleanup container then fail
           _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
           assertFailure ("pgroll migrations failed: " <> err)
         Right () -> do
@@ -52,16 +53,63 @@ healthOk = do
                     dbConfig = dbCfg,
                     authorizeLogin = const (pure True)
                   }
-          let application :: Application
+              application :: Application
               application = app env
-          res <- runSession (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health", pathInfo = ["health"]} "")) application
-          let code = simpleStatus res
-          when (code /= status200) $ do
-            _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
-            assertFailure ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
-          -- Cleanup container on success too
-          _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
-          pure ()
+              cleanup = void (readProcessWithExitCode "docker" ["rm", "-f", container] "")
+          finally
+            ( do
+                res <-
+                  runSession
+                    (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health", pathInfo = ["health"]} ""))
+                    application
+                let code = simpleStatus res
+                when (code /= status200) $
+                  assertFailure
+                    ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
+                healthStatus <-
+                  case Aeson.eitherDecode (simpleBody res) of
+                    Left err ->
+                      assertFailure ("failed to decode health response: " <> err)
+                    Right payload -> pure payload
+                validateHealthPayload env dbCfg healthStatus
+            )
+            cleanup
+
+validateHealthPayload :: AppEnv -> DbConfig -> HealthStatus -> IO ()
+validateHealthPayload env dbCfg payload = do
+  payload.status @?= "ok"
+  payload.service @?= otelServiceName env
+  assertBool "health version should be non-empty" (not (Text.null payload.version))
+  case HashMap.lookup "database" payload.checks of
+    Nothing -> assertFailure "health response missing database check"
+    Just dbReport -> do
+      dbReport.status @?= "ok"
+      assertBool "database durationMs should be non-negative" (dbReport.durationMs >= 0)
+      case parseEither (databaseDetailsParser dbCfg) dbReport.details of
+        Left err -> assertFailure ("invalid database check details: " <> err)
+        Right () -> pure ()
+
+databaseDetailsParser :: DbConfig -> Aeson.Value -> Parser ()
+databaseDetailsParser dbCfg =
+  withObject "database details" $ \obj -> do
+    messageText :: Text <- obj .: "message"
+    when (Text.null messageText) (fail "message was empty")
+    rowCount :: Int <- obj .: "rowCount"
+    when (rowCount < 0) (fail "rowCount was negative")
+    databaseValue <- obj .: "database"
+    withObject "database connection info" (validateConnection dbCfg) databaseValue
+
+validateConnection :: DbConfig -> Object -> Parser ()
+validateConnection dbCfg dbObj = do
+  host :: Text <- dbObj .: "host"
+  port :: Int <- dbObj .: "port"
+  name :: Text <- dbObj .: "database"
+  user :: Text <- dbObj .: "user"
+  when (host /= dbHost dbCfg) (fail "unexpected database host")
+  when (port /= fromIntegral (dbPort dbCfg)) (fail "unexpected database port")
+  when (name /= dbName dbCfg) (fail "unexpected database name")
+  when (user /= dbUser dbCfg) (fail "unexpected database user")
+  pure ()
 
 -- | Start a Dockerized Postgres for tests, returning DbConfig.
 withDockerPostgres :: IO (Either String (DbConfig, String))
