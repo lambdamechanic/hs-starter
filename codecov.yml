@@ -10,13 +10,14 @@ coverage:
   status:
     project:
       default:
-        # Start lenient; flip informational to false later to enforce
+        # Ratchet: allow up to 1% drop vs base
         target: auto
         threshold: 1%
         base: auto
-        informational: true
+        informational: false
     patch:
       default:
+        # Keep patch advisory for now
         target: auto
         threshold: 0%
         informational: true
