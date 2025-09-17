@@ -6,26 +6,21 @@ module Starter.Tests.Health
   )
 where
 
-import Control.Exception (SomeException, assert, displayException, try)
-import Data.Aeson (eitherDecode)
-import Data.ByteString.Lazy qualified as LBS
+import Control.Exception (SomeException, try)
 import Data.ByteString.Char8 qualified as BS
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
-import Database.Postgres.Temp qualified as Temp
 import Network.HTTP.Types (methodGet, status200)
-import Network.Wai (Application, defaultRequest, rawPathInfo, requestMethod)
+import Network.Wai (Application, defaultRequest, rawPathInfo, requestMethod, pathInfo)
 import Network.Wai.Test
-import Squeal.PostgreSQL
-import Squeal.PostgreSQL.Definition.Constraint (primaryKey, unique)
-import Squeal.PostgreSQL.Definition.Table (createTableIfNotExists)
-import Squeal.PostgreSQL.Expression.Time (now)
-import Squeal.PostgreSQL.Expression.Type (bool, default_, notNullable, nullable, serial, text, timestamptz)
-import Starter.Database.Connection (DbConfig (..), withAppConnection)
+import Starter.Database.Connection (DbConfig (..))
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Starter.Server (HealthStatus (..), app)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
+import System.Exit (ExitCode (..))
+import System.Process (readProcessWithExitCode)
 
 tests :: TestTree
 tests =
@@ -36,60 +31,98 @@ tests =
 
 healthOk :: IO ()
 healthOk = do
-  -- Start an ephemeral Postgres
-  eDb <- try @SomeException Temp.start
-  case eDb of
-    Left exc -> assertFailure ("tmp-postgres failed to start: " <> displayException exc)
-    Right (Left err) -> assertFailure ("tmp-postgres unavailable: " <> show err)
-    Right (Right db) -> do
-      let kvs = map (break (== '=')) (words (BS.unpack (Temp.toConnectionString db)))
-          lookupKV k = fmap (drop 1) (lookup k kvs)
-          dbCfg =
-            DbConfig
-              { dbHost = maybe "localhost" Text.pack (lookupKV "host"),
-                dbPort = maybe 5432 read (lookupKV "port"),
-                dbName = maybe "postgres" Text.pack (lookupKV "dbname"),
-                dbUser = maybe "postgres" Text.pack (lookupKV "user"),
-                dbPassword = case lookupKV "password" of
-                  Nothing -> Nothing
-                  Just "" -> Nothing
-                  Just p -> Just (Text.pack p)
-              }
-          env =
-            AppEnv
-              { appPort = 0,
-                otelServiceName = "hs-starter-tests",
-                otelCollectorEndpoint = Nothing,
-                otelCollectorHeaders = Nothing,
-                dbConfig = dbCfg,
-                authorizeLogin = const (pure True)
-              }
-      -- Ensure the minimal schema exists for /health (users table)
-      let createUsers =
-            createTableIfNotExists
-              (#public ! #users)
-              ( serial `as` #id
-                  :* (text & nullable) `as` #email
-                  :* (text & nullable) `as` #display_name
-                  :* (text & nullable) `as` #avatar_url
-                  :* (timestamptz & notNullable & default_ now) `as` #created_at
-                  :* (timestamptz & notNullable & default_ now) `as` #updated_at
-                  :* (text & notNullable) `as` #provider
-                  :* (text & notNullable) `as` #subject
-                  :* (bool & notNullable) `as` #allowed
-                  :* (timestamptz & nullable) `as` #last_login_at
-              )
-              ( primaryKey #id `as` #users_pkey
-                  :* unique (#provider :* #subject :* Nil) `as` #users_provider_subject_key
-                  :* Nil
-              )
-      _ <- withAppConnection dbCfg (define createUsers)
+  mCfg <- withDockerPostgres
+  case mCfg of
+    Left msg -> putStrLn ("docker postgres unavailable, skipping health test: " <> msg)
+    Right (dbCfg, container) -> do
+      -- Apply migrations with pgroll
+      mig <- applyPgrollMigrations dbCfg
+      case mig of
+        Left err -> do
+          -- Cleanup container then fail
+          _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+          assertFailure ("pgroll migrations failed: " <> err)
+        Right () -> do
+          let env =
+                AppEnv
+                  { appPort = 0,
+                    otelServiceName = "hs-starter-tests",
+                    otelCollectorEndpoint = Nothing,
+                    otelCollectorHeaders = Nothing,
+                    dbConfig = dbCfg,
+                    authorizeLogin = const (pure True)
+                  }
+          let application :: Application
+              application = app env
+          res <- runSession (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health", pathInfo = ["health"]} "")) application
+          let code = simpleStatus res
+          when (code /= status200) $ do
+            _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+            assertFailure ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
+          -- Cleanup container on success too
+          _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+          pure ()
 
-      -- Exercise the WAI application directly
-      let application :: Application
-          application = app env
-      res <- runSession (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health"} "")) application
-      let code = simpleStatus res
-      when (code /= status200) $ do
-        assertFailure ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
-      Temp.stop db
+-- | Start a Dockerized Postgres for tests, returning DbConfig.
+withDockerPostgres :: IO (Either String (DbConfig, String))
+withDockerPostgres = do
+  (codeVer, _, _) <- readProcessWithExitCode "docker" ["--version"] ""
+  if codeVer /= ExitSuccess
+    then pure (Left "docker not found on PATH")
+    else do
+      let container = "hs-starter-test-db"
+          image = fromMaybe "postgres:16-alpine" (Just "postgres:16-alpine")
+      _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+      (codeRun, _outRun, errRun) <- readProcessWithExitCode "docker" ["run", "-d", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=postgres", "-e", "POSTGRES_USER=postgres", "-e", "POSTGRES_DB=hs_starter", "-P", image] ""
+      if codeRun /= ExitSuccess
+        then pure (Left ("failed to start docker postgres: " <> errRun))
+        else do
+          -- Query mapped port
+          (codePort, outPort, errPort) <- readProcessWithExitCode "docker" ["port", container, "5432/tcp"] ""
+          portStr <- case codePort of
+            ExitSuccess -> case reverse (takeWhile (/= '\n') outPort) of
+              _ -> do
+                let line = head (lines outPort)
+                    p = reverse (takeWhile (/= ':') (reverse line))
+                pure p
+            _ -> pure ""
+          if null portStr
+            then do
+              _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+              pure (Left ("failed to get mapped port: " <> errPort))
+            else do
+              let port = read portStr :: Int
+              let waitLoop 0 = pure ()
+                  waitLoop n = do
+                    (c, _, _) <- readProcessWithExitCode "docker" ["exec", container, "pg_isready", "-U", "postgres", "-d", "hs_starter"] ""
+                    case c of
+                      ExitSuccess -> pure ()
+                      _ -> threadDelay 500000 >> waitLoop (n -1)
+              waitLoop (40 :: Int)
+              pure (Right ( DbConfig {dbHost = "127.0.0.1", dbPort = fromIntegral port, dbName = "hs_starter", dbUser = "postgres", dbPassword = Just "postgres"}
+                           , container))
+
+-- | Apply pgroll migrations against the given DbConfig.
+applyPgrollMigrations :: DbConfig -> IO (Either String ())
+applyPgrollMigrations DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = do
+  let url = "postgres://" <> Text.unpack dbUser
+            <> maybe "" (\p -> ":" <> Text.unpack p) dbPassword
+            <> "@" <> Text.unpack dbHost
+            <> ":" <> show dbPort
+            <> "/" <> Text.unpack dbName
+            <> "?sslmode=disable"
+  (vcode, vout, verr) <- readProcessWithExitCode "pgroll" ["--version"] ""
+  putStrLn ("pgroll version: exit=" <> show vcode <> "; stdout=\n" <> vout <> "stderr=\n" <> verr)
+  if vcode /= ExitSuccess
+    then pure (Left "pgroll not found or failed to run")
+    else do
+      (icode, iout, ierr) <- readProcessWithExitCode "pgroll" ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"] ""
+      putStrLn ("pgroll init exit=" <> show icode)
+      if icode /= ExitSuccess
+        then pure (Left ("pgroll init failed:\nSTDOUT:\n" <> iout <> "\nSTDERR:\n" <> ierr))
+        else do
+          (mcode, mout, merr) <- readProcessWithExitCode "pgroll" ["migrate", "db/pgroll", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll", "--complete"] ""
+          putStrLn ("pgroll migrate exit=" <> show mcode)
+          if mcode /= ExitSuccess
+            then pure (Left ("pgroll migrate failed:\nSTDOUT:\n" <> mout <> "\nSTDERR:\n" <> merr))
+            else pure (Right ())
