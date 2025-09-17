@@ -18,17 +18,15 @@ import Roboservant.Server qualified as Robo
 import Roboservant.Types (Atom (..), Breakdown)
 import Roboservant.Types.Config (defaultConfig)
 import Squeal.PostgreSQL
-import Squeal.PostgreSQL.Definition.Constraint (primaryKey, unique)
-import Squeal.PostgreSQL.Definition.Table (createTableIfNotExists)
-import Squeal.PostgreSQL.Expression.Time (now)
-import Squeal.PostgreSQL.Expression.Type (bool, default_, notNullable, nullable, serial, text, timestamptz)
-import Starter.Database.Connection (DbConfig (..), withAppConnection)
+import Starter.Database.Connection (DbConfig (..))
 import Starter.Env (AppEnv (..))
 import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
 import Starter.Server (HealthApi, HealthStatus, healthServer)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
+import System.Process (readProcessWithExitCode)
+import System.Exit (ExitCode(..))
 
 -- | Run the Roboservant fuzzer against the health check API.
 fuzzesHealthcheck :: IO ()
@@ -75,49 +73,38 @@ fuzzesHealthcheck = do
             <> " user="
             <> Text.unpack (dbUser dbCfg)
         )
-      -- Ensure minimal schema required for health check exists.
-      let createUsers =
-            createTableIfNotExists
-              (#public ! #users)
-              ( serial
-                  `as` #id
-                  :* (text & nullable)
-                  `as` #email
-                  :* (text & nullable)
-                  `as` #display_name
-                  :* (text & nullable)
-                  `as` #avatar_url
-                  :* (timestamptz & notNullable & default_ now)
-                  `as` #created_at
-                  :* (timestamptz & notNullable & default_ now)
-                  `as` #updated_at
-                  :* (text & notNullable)
-                  `as` #provider
-                  :* (text & notNullable)
-                  `as` #subject
-                  :* (bool & notNullable)
-                  `as` #allowed
-                  :* (timestamptz & nullable)
-                  `as` #last_login_at
-              )
-              ( primaryKey #id
-                  `as` #users_pkey
-                  :* unique (#provider :* #subject :* Nil)
-                  `as` #users_provider_subject_key
-                  :* Nil
-              )
-      ddlResult <- try @SomeException (withAppConnection dbCfg (define createUsers))
-      case ddlResult of
-        Left exc -> do
-          putStrLn ("failed to ensure users table: " <> displayException exc)
-          assertFailure ("failed to define users table: " <> displayException exc)
-        Right _ -> pure ()
+      -- Apply pgroll migrations against the tmp-postgres instance.
+      applyPgrollMigrations dbCfg
       result <- Robo.fuzz @HealthApi (healthServer env) defaultConfig
       case result of
         Nothing -> putStrLn "roboservant: no counterexamples found"
         Just _ -> putStrLn "roboservant: counterexample found"
       Temp.stop db
       assertBool "roboservant found a counterexample" (isNothing result)
+
+-- | Apply the pgroll migrations in db/pgroll to the given connection.
+applyPgrollMigrations :: DbConfig -> IO ()
+applyPgrollMigrations cfg = do
+  let DbConfig { dbHost, dbPort, dbName, dbUser, dbPassword } = cfg
+  let migrationsDir = "db/pgroll"
+      url =
+        "postgres://"
+          <> Text.unpack dbUser
+          <> maybe "" (\p -> ":" <> Text.unpack p) dbPassword
+          <> "@" <> Text.unpack dbHost
+          <> ":" <> show dbPort
+          <> "/" <> Text.unpack dbName
+          <> "?sslmode=disable"
+  putStrLn ("pgroll: init public schema and state schema pgroll")
+  (codeInit, outInit, errInit) <- readProcessWithExitCode "pgroll" ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"] ""
+  case codeInit of
+    ExitSuccess -> pure ()
+    _ -> putStrLn ("pgroll init returned non-success (continuing):\n" <> outInit <> errInit)
+  putStrLn ("pgroll: migrating from " <> migrationsDir)
+  (codeMig, outMig, errMig) <- readProcessWithExitCode "pgroll" ["migrate", migrationsDir, "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll", "--complete"] ""
+  case codeMig of
+    ExitSuccess -> putStrLn "pgroll: migrations applied successfully"
+    _ -> assertFailure ("pgroll migrate failed:\nSTDOUT:\n" <> outMig <> "\nSTDERR:\n" <> errMig)
 
 tests :: TestTree
 tests =
