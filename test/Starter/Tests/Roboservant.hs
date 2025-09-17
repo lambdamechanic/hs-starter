@@ -34,7 +34,8 @@ fuzzesHealthcheck = do
     Right db -> do
       let connStr = B8.unpack (Temp.toConnectionString db)
           kvs = map (break (=='=')) (words connStr)
-          lookupKV k = lookup k kvs >>= \(_,v) -> Just (drop 1 v)
+          lookupKV :: String -> Maybe String
+          lookupKV k = fmap (drop 1) (lookup k kvs)
           dbCfg = DbConfig
             { dbHost = maybe "localhost" Text.pack (lookupKV "host")
             , dbPort = maybe 5432 read (lookupKV "port")
@@ -53,7 +54,7 @@ fuzzesHealthcheck = do
             , otelCollectorEndpoint = Nothing
             , otelCollectorHeaders = Nothing
             , dbConfig = dbCfg
-            , authorizeLogin = (_ :: OAuthProfile -> IO Bool) \_ -> pure True
+            , authorizeLogin = const (pure True)
             }
       result <- Robo.fuzz @HealthApi (healthServer env) defaultConfig
       Temp.stop db
