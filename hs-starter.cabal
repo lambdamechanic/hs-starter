@@ -79,11 +79,13 @@ test-suite hs-starter-tests
         Starter.Tests.Db
         Starter.Tests.Property
         Starter.Tests.Roboservant
-    build-depends:
+  build-depends:
         hs-starter,
         falsify >=0.2 && <0.3,
         roboservant >=0.1.0.4,
         squeal-postgresql >=0.9.2 && <0.10,
         tasty ^>=1.5,
         tasty-hunit ^>=0.10,
-        tmp-postgres
+        tmp-postgres,
+        bytestring >=0.11 && <0.13,
+        text >=2.0 && <2.2

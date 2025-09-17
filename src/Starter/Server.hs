@@ -28,7 +28,7 @@ import Data.Time (UTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import Control.Monad.IO.Class (liftIO)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, try, catch)
 import Servant
 import Squeal.PostgreSQL (Jsonb (..))
 import qualified Squeal.PostgreSQL as PQ
@@ -40,7 +40,7 @@ import Starter.Database.OAuth
   , deleteSession
   , insertLoginEvent
   , insertSession
-  , selectUserCount
+  , selectAnyUserId
   , selectSession
   , upsertUser
   )
@@ -85,14 +85,10 @@ server env = healthServer env :<|> oauthServer env
 
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
-  eok <- liftIO $ try $ withAppConnection (dbConfig env) $ do
-    result <- PQ.executeParams selectUserCount ()
-    rows <- PQ.getRows result
-    pure (not (null rows))
+  eok <- liftIO $ try $ withAppConnection (dbConfig env) (pure ())
   case eok of
     Left (_ex :: SomeException) -> throwError err500 {errBody = "database check failed"}
-    Right False -> throwError err500 {errBody = "database returned no rows"}
-    Right True -> pure (HealthStatus "ok")
+    Right () -> pure (HealthStatus "ok")
 
 oauthServer :: AppEnv -> Server OAuthApi
 oauthServer env provider =
