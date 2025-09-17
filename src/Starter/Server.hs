@@ -7,51 +7,50 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Starter.Server
-  ( app
-  , apiProxy
-  , Api
-  , HealthApi
-  , OAuthApi
-  , server
-  , healthServer
-  , HealthStatus (..)
-  ) where
+  ( app,
+    apiProxy,
+    Api,
+    HealthApi,
+    OAuthApi,
+    server,
+    healthServer,
+    HealthStatus (..),
+  )
+where
 
-import Starter.Prelude
-
+import Control.Exception (SomeException, catch, try)
+import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (ToJSON (..), object, (.=))
-import qualified Data.Aeson as Aeson
+import Data.Aeson qualified as Aeson
 import Data.Hashable (Hashable)
 import Data.Maybe (listToMaybe)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time (UTCTime, getCurrentTime)
-import qualified Data.UUID as UUID
-import qualified Data.UUID.V4 as UUID
-import Control.Monad.IO.Class (liftIO)
-import Control.Exception (SomeException, try, catch)
+import Data.UUID qualified as UUID
+import Data.UUID.V4 qualified as UUID
 import Servant
 import Squeal.PostgreSQL (Jsonb (..))
-import qualified Squeal.PostgreSQL as PQ
-
+import Squeal.PostgreSQL qualified as PQ
 import Starter.Database.Connection (withAppConnection)
 import Starter.Database.OAuth
-  ( DbUserRow (..)
-  , OAuthSessionRow (..)
-  , deleteSession
-  , insertLoginEvent
-  , insertSession
-  , selectUserCount
-  , selectSession
-  , upsertUser
+  ( DbUserRow (..),
+    OAuthSessionRow (..),
+    deleteSession,
+    insertLoginEvent,
+    insertSession,
+    selectSession,
+    selectUserCount,
+    upsertUser,
   )
 import Starter.Env (AppEnv (..))
 import Starter.OAuth.Types
-  ( OAuthCallbackRequest (..)
-  , OAuthCallbackResponse (..)
-  , OAuthProfile (..)
-  , OAuthStartRequest (..)
-  , OAuthStartResponse (..)
+  ( OAuthCallbackRequest (..),
+    OAuthCallbackResponse (..),
+    OAuthProfile (..),
+    OAuthStartRequest (..),
+    OAuthStartResponse (..),
   )
+import Starter.Prelude
 
 -- | API type definition for the Servant server.
 type HealthApi = "health" :> Get '[JSON] HealthStatus
@@ -60,7 +59,7 @@ type OAuthApi =
   "oauth"
     :> Capture "provider" Text
     :> ( "start" :> ReqBody '[JSON] OAuthStartRequest :> Post '[JSON] OAuthStartResponse
-          :<|> "callback" :> ReqBody '[JSON] OAuthCallbackRequest :> Post '[JSON] OAuthCallbackResponse
+           :<|> "callback" :> ReqBody '[JSON] OAuthCallbackRequest :> Post '[JSON] OAuthCallbackResponse
        )
 
 type Api = HealthApi :<|> OAuthApi
@@ -112,8 +111,8 @@ startHandler env provider OAuthStartRequest {redirectUri = redirectUriValue, sco
 callbackHandler :: AppEnv -> Text -> OAuthCallbackRequest -> Handler OAuthCallbackResponse
 callbackHandler env provider request@OAuthCallbackRequest {state = callbackState, profile = callbackProfile} = do
   sessionRow <- liftIO (loadSession env callbackState) >>= maybe (throwError err400 {errBody = "unknown oauth state"}) pure
-  when (sessionProvider sessionRow /= provider) $
-    throwError err400 {errBody = "provider mismatch"}
+  when (sessionProvider sessionRow /= provider)
+    $ throwError err400 {errBody = "provider mismatch"}
   allowed <- liftIO (authorizeLogin env callbackProfile)
   now <- liftIO getCurrentTime
   dbUser <-
@@ -124,9 +123,9 @@ callbackHandler env provider request@OAuthCallbackRequest {state = callbackState
   let DbUserRow {userId = dbUserId} = dbUser
   pure
     OAuthCallbackResponse
-      { allowed
-      , redirectUri = sessionRedirectUri sessionRow
-      , userId = dbUserId
+      { allowed,
+        redirectUri = sessionRedirectUri sessionRow,
+        userId = dbUserId
       }
 
 loadSession :: AppEnv -> Text -> IO (Maybe OAuthSessionRow)
@@ -142,14 +141,14 @@ upsertUserRecord env provider OAuthProfile {subject, email, displayName, avatarU
     result <-
       PQ.manipulateParams
         upsertUser
-        ( provider
-        , subject
-        , email
-        , displayName
-        , avatarUrl
-        , allowed
-        , Just now
-        , now
+        ( provider,
+          subject,
+          email,
+          displayName,
+          avatarUrl,
+          allowed,
+          Just now,
+          now
         )
     rows <- PQ.getRows result
     pure (listToMaybe rows)
@@ -159,17 +158,17 @@ recordLogin env DbUserRow {userId = dbUserId} provider payload allowed now =
   withAppConnection (dbConfig env) $ do
     PQ.manipulateParams_
       insertLoginEvent
-      ( dbUserId
-      , provider
-      , Jsonb (Aeson.toJSON payload)
-      , allowed
-      , now
+      ( dbUserId,
+        provider,
+        Jsonb (Aeson.toJSON payload),
+        allowed,
+        now
       )
 
 clearSession :: AppEnv -> Text -> IO ()
 clearSession env stateValue =
-  withAppConnection (dbConfig env) $
-    PQ.manipulateParams_ deleteSession (PQ.Only stateValue)
+  withAppConnection (dbConfig env)
+    $ PQ.manipulateParams_ deleteSession (PQ.Only stateValue)
 
 randomState :: IO Text
 randomState = UUID.toText <$> UUID.nextRandom
@@ -179,7 +178,8 @@ randomVerifier = UUID.toText <$> UUID.nextRandom
 
 buildAuthorizationUrl :: Text -> Text -> Text -> Text -> Text
 buildAuthorizationUrl provider redirectUri state scopeText =
-  "https://auth.example.com/" <> provider
+  "https://auth.example.com/"
+    <> provider
     <> "?redirect_uri="
     <> redirectUri
     <> "&state="

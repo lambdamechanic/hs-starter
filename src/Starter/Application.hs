@@ -1,24 +1,24 @@
 module Starter.Application
-  ( runApp
-  , AppEnv (..)
-  ) where
-
-import Starter.Prelude
+  ( runApp,
+    AppEnv (..),
+  )
+where
 
 import Data.Maybe (fromMaybe, isNothing)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Network.Wai.Handler.Warp (run)
 import OpenTelemetry.Instrumentation.Servant (openTelemetryServantMiddleware)
 import OpenTelemetry.Instrumentation.Wai (newOpenTelemetryWaiMiddleware)
 import OpenTelemetry.Trace
-  ( TracerProvider
-  , initializeGlobalTracerProvider
-  , shutdownTracerProvider
+  ( TracerProvider,
+    initializeGlobalTracerProvider,
+    shutdownTracerProvider,
   )
 import Starter.Database.Connection (loadDbConfigFromEnv)
 import Starter.Env (AppEnv (..))
 import Starter.OAuth.Types (OAuthProfile)
-import Starter.Server (app, apiProxy)
+import Starter.Prelude
+import Starter.Server (apiProxy, app)
 import System.Environment (lookupEnv, setEnv)
 import Text.Read (readMaybe)
 import UnliftIO.Exception (bracket)
@@ -30,7 +30,9 @@ runApp = do
     openTelemetryWaiMiddleware <- newOpenTelemetryWaiMiddleware
     let instrumentedApp =
           openTelemetryWaiMiddleware
-            ( openTelemetryServantMiddleware tracerProvider apiProxy
+            ( openTelemetryServantMiddleware
+                tracerProvider
+                apiProxy
                 (app env)
             )
     run (appPort env) instrumentedApp
@@ -47,12 +49,12 @@ loadAppEnv = do
   when (isNothing serviceNameEnv) $ setEnv "OTEL_SERVICE_NAME" (Text.unpack otelServiceName)
   pure
     AppEnv
-      { appPort
-      , otelServiceName
-      , otelCollectorEndpoint = collectorEndpoint
-      , otelCollectorHeaders = collectorHeaders
-      , dbConfig
-      , authorizeLogin = defaultAuthorizeLogin
+      { appPort,
+        otelServiceName,
+        otelCollectorEndpoint = collectorEndpoint,
+        otelCollectorHeaders = collectorHeaders,
+        dbConfig,
+        authorizeLogin = defaultAuthorizeLogin
       }
 
 withTracerProvider :: (TracerProvider -> IO a) -> IO a
