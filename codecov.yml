@@ -17,10 +17,10 @@ coverage:
         informational: false
     patch:
       default:
-        # Keep patch advisory for now
-        target: auto
+        # Enforce coverage on changed lines
+        target: 90%
         threshold: 0%
-        informational: true
+        informational: false
 
 ignore:
   - "src/Starter/Database/Generated.hs"
