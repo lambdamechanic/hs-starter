@@ -16,12 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql libpq-dev
+
       - id: setup
         name: Setup GHC and Cabal
         uses: haskell-actions/setup@v2
         with:
           ghc-version: "9.8.4"
-          cabal-version: "3.10.3.0"
+          cabal-version: "3.12.1.0"
 
       - name: Cache cabal store
         uses: actions/cache@v4
@@ -38,5 +43,34 @@ jobs:
       - name: Build
         run: cabal build all
 
-      - name: Test
-        run: cabal test
+      - name: Test with coverage
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          # Ensure .tix files land in a predictable location
+          export HPCTIXDIR="$(pwd)/dist-newstyle"
+          which cabal
+          cabal --version
+          ghc --version
+          UNIT_LIB_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
+          UNIT_TEST_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and (."component-name" | startswith("test:"))) | ."id"' dist-newstyle/cache/plan.json)
+          if cabal test --help | grep -q -- "--coverage-for"; then
+            echo "Using cabal --coverage-for=${UNIT_LIB_ID} and test=${UNIT_TEST_ID}"
+            cabal test --enable-coverage --enable-per-component \
+              --coverage-for="${UNIT_LIB_ID}" \
+              --coverage-for="${UNIT_TEST_ID}" \
+              --test-show-details=streaming
+          else
+            echo "cabal does not support --coverage-for; using legacy coverage flags"
+            cabal test --enable-coverage --enable-per-component --test-show-details=streaming
+          fi
+
+      - name: Generate coverage report (Codecov JSON)
+        uses: 8c6794b6/hpc-codecov-action@v4
+        with:
+          target: cabal:hs-starter-tests
+          excludes: Main,Paths_hs_starter
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: codecov.json
