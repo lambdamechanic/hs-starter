@@ -1,5 +1,7 @@
 packages: .
 
+index-state: 2025-09-01T00:00:00Z
+
 tests: True
 
 write-ghc-environment-files: never
