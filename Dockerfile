@@ -1,10 +1,14 @@
 # syntax=docker/dockerfile:1
 
-FROM ghcr.io/haskell/cabal:3.10 AS build
+FROM ghcr.io/haskell/cabal:3.12 AS build
 WORKDIR /workspace
 
 COPY hs-starter.cabal cabal.project ./
-RUN cabal update && cabal build --only-dependencies
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libpq-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+ && cabal update \
+ && cabal build --only-dependencies
 
 COPY . .
 RUN cabal install exe:hs-starter \
@@ -20,8 +24,9 @@ ENV APP_HOME=/opt/app \
 WORKDIR ${APP_HOME}
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends libgmp10 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install --yes --no-install-recommends libgmp10 libpq5 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+ && update-ca-certificates
 
 COPY --from=build /opt/app/bin/hs-starter /usr/local/bin/hs-starter
 
