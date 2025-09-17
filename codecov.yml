@@ -1,0 +1,25 @@
+codecov:
+  require_ci_to_pass: yes
+  notify:
+    wait_for_ci: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "0..100"
+  status:
+    project:
+      default:
+        # Start lenient; flip informational to false later to enforce
+        target: auto
+        threshold: 1%
+        base: auto
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 0%
+        informational: true
+
+ignore:
+  - "src/Starter/Database/Generated.hs"
