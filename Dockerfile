@@ -14,30 +14,40 @@ RUN apt-get update \
 # Install ghcup, GHC and Cabal
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
     PATH=/root/.ghcup/bin:/root/.local/bin:$PATH
-RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
 RUN --mount=type=cache,target=/root/.ghcup \
-  ghcup install ghc 9.8.4 \
+  curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+RUN --mount=type=cache,target=/root/.ghcup \
+  . /root/.ghcup/env \
+  && ghcup install ghc 9.8.4 \
   && ghcup set ghc 9.8.4 \
   && ghcup install cabal 3.12.1.0 \
-  && ghcup set cabal 3.12.1.0 \
-  && cabal --version \
-  && ghc --version
-
+  && ghcup set cabal 3.12.1.0
 WORKDIR /workspace
 
 COPY hs-starter.cabal cabal.project cabal.project.freeze ./
-RUN --mount=type=cache,target=/root/.cabal/store \
+RUN --mount=type=cache,target=/root/.ghcup \
+    --mount=type=cache,target=/root/.cabal/store \
     --mount=type=cache,target=/root/.cabal/packages \
-    cabal build --only-dependencies
+    . /root/.ghcup/env \
+    && cabal update --index-state=2025-09-01T00:00:00Z
+RUN --mount=type=cache,target=/root/.ghcup \
+    --mount=type=cache,target=/root/.cabal/store \
+    --mount=type=cache,target=/root/.cabal/packages \
+    . /root/.ghcup/env \
+    && cabal build --only-dependencies
 
 COPY . .
-RUN --mount=type=cache,target=/root/.cabal/store \
+RUN --mount=type=cache,target=/root/.ghcup \
+    --mount=type=cache,target=/root/.cabal/store \
     --mount=type=cache,target=/root/.cabal/packages \
-    cabal build exe:hs-starter
+    . /root/.ghcup/env \
+    && cabal build exe:hs-starter
 
-RUN --mount=type=cache,target=/root/.cabal/store \
+RUN --mount=type=cache,target=/root/.ghcup \
+    --mount=type=cache,target=/root/.cabal/store \
     --mount=type=cache,target=/root/.cabal/packages \
-    cabal install exe:hs-starter \
+    . /root/.ghcup/env \
+    && cabal install exe:hs-starter \
       --installdir /opt/app/bin \
       --install-method=copy \
       --overwrite-policy=always
@@ -65,4 +75,5 @@ COPY --from=build /opt/app/bin/pgroll /usr/local/bin/pgroll
 COPY --from=build /workspace/db/pgroll ${APP_HOME}/db/pgroll
 
 EXPOSE 8080
-ENTRYPOINT ["hs-starter"]
+ENTRYPOINT ["/bin/bash", "-lc"]
+CMD ["hs-starter"]
