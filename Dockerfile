@@ -4,7 +4,7 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
          curl ca-certificates xz-utils \
          build-essential pkg-config git \
-         libgmp-dev libpq-dev \
+         libgmp-dev libpq-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/* \
  && update-ca-certificates
 
@@ -41,7 +41,7 @@ WORKDIR ${APP_HOME}
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-         libgmp10 libtinfo6 libpq5 ca-certificates \
+         libgmp10 libtinfo6 libpq5 zlib1g ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
  && update-ca-certificates
 
