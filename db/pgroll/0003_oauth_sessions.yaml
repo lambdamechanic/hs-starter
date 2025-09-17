@@ -4,7 +4,7 @@ operations:
       column:
         name: allowed
         type: boolean
-        default: true
+        default: "true"
   - add_column:
       table: users
       column:
@@ -16,7 +16,7 @@ operations:
       column:
         name: allowed
         type: boolean
-        default: true
+        default: "true"
   - create_table:
       name: oauth_sessions
       columns:

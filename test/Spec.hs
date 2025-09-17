@@ -1,12 +1,11 @@
 module Main (main) where
 
 import Starter.Prelude
-
-import qualified Starter.Tests.Db as Db
-import qualified Starter.Tests.Property as Property
-import qualified Starter.Tests.Roboservant as Roboservant
+import Starter.Tests.Db qualified as Db
+import Starter.Tests.Property qualified as Property
+import Starter.Tests.Health qualified as Health
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit ((@?=), testCase)
+import Test.Tasty.HUnit (testCase, (@?=))
 
 main :: IO ()
 main = defaultMain allTests
@@ -15,8 +14,8 @@ allTests :: TestTree
 allTests =
   testGroup
     "Starter"
-    [ testCase "bootstrap sanity" (True @?= True)
-    , Roboservant.tests
-    , Property.tests
-    , Db.tests
+    [ testCase "bootstrap sanity" (True @?= True),
+      Health.tests,
+      Property.tests,
+      Db.tests
     ]

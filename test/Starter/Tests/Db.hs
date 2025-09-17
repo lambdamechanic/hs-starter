@@ -1,35 +1,60 @@
 module Starter.Tests.Db
-  ( tests
-  ) where
+  ( tests,
+  )
+where
 
 import Starter.Prelude
-
-import Control.Exception (SomeException, catch, displayException)
-import qualified Database.Postgres.Temp as Temp
-import qualified Squeal.PostgreSQL as PQ
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.Text as Text
+import Starter.Database.Connection (DbConfig (..))
+import Squeal.PostgreSQL qualified as PQ
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase)
+import System.Exit (ExitCode (..))
+import System.Process (readProcessWithExitCode)
 
--- | Ensure tmp-postgres instances boot and accept Squeal connections.
+-- | Ensure dockerized Postgres accepts Squeal connections.
 tests :: TestTree
 tests =
   testGroup
-    "tmp-postgres"
-    [ testCase "connects" tmpPostgresConnects
+    "docker-postgres"
+    [ testCase "connects" dockerPostgresConnects
     ]
 
-tmpPostgresConnects :: IO ()
-tmpPostgresConnects = do
-  startResult <- catch (Right <$> Temp.start) handler
-  case startResult of
-    Left msg -> putStrLn msg
-    Right (Left err) ->
-      putStrLn $ "tmp-postgres unavailable, skipping test: " <> show err
-    Right (Right db) -> do
-      let connString = Temp.toConnectionString db
-      PQ.withConnection connString (pure ())
-      Temp.stop db
+dockerPostgresConnects :: IO ()
+dockerPostgresConnects = do
+  (cver, _, _) <- readProcessWithExitCode "docker" ["--version"] ""
+  case cver of
+    ExitSuccess -> pure ()
+    _ -> do
+      putStrLn "docker not available, skipping"
+      pure ()
+  let container = "hs-starter-test-db"
+  _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+  (crun, _o, _e) <- readProcessWithExitCode "docker" ["run", "-d", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=postgres", "-e", "POSTGRES_USER=postgres", "-e", "POSTGRES_DB=hs_starter", "-P", "postgres:16-alpine"] ""
+  case crun of
+    ExitSuccess -> pure ()
+    _ -> putStrLn "failed to start container; skipping"
+  (cp, op, _ep) <- readProcessWithExitCode "docker" ["port", container, "5432/tcp"] ""
+  case cp of
+    ExitSuccess -> do
+      let line = head (lines op)
+          p = reverse (takeWhile (/= ':') (reverse line))
+          port = read p :: Int
+          cfg = DbConfig {dbHost = "127.0.0.1", dbPort = fromIntegral port, dbName = "hs_starter", dbUser = "postgres", dbPassword = Just "postgres"}
+      PQ.withConnection (renderConn cfg) (pure ())
+      _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+      pure ()
+    _ -> do
+      _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
+      pure ()
 
-handler :: SomeException -> IO (Either String (Either Temp.StartError Temp.DB))
-handler exc =
-  pure . Left $ "tmp-postgres unavailable, skipping test: " <> displayException exc
+renderConn :: DbConfig -> BS.ByteString
+renderConn cfg =
+  let hostPart = "host=" <> Text.unpack (dbHost cfg)
+      portPart = "port=" <> show (dbPort cfg)
+      namePart = "dbname=" <> Text.unpack (dbName cfg)
+      userPart = "user=" <> Text.unpack (dbUser cfg)
+      passParts = maybe [] (\p -> ["password=" <> Text.unpack p]) (dbPassword cfg)
+      parts = [hostPart, portPart, namePart, userPart] ++ passParts
+   in BS.pack (unwords parts)

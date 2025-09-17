@@ -1,11 +1,11 @@
 module Starter.Tests.Property
-  ( tests
-  ) where
+  ( tests,
+  )
+where
 
 import Starter.Prelude
-
-import qualified Test.Falsify.Generator as Gen
-import qualified Test.Falsify.Range as Range
+import Test.Falsify.Generator qualified as Gen
+import Test.Falsify.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Falsify (Property, gen, testFailed, testProperty)
 

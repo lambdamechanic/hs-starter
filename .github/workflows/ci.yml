@@ -21,6 +21,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql libpq-dev
 
+      - name: Install pgroll CLI
+        run: |
+          set -euo pipefail
+          PGROLL_VER="v0.14.2"
+          URL="https://github.com/xataio/pgroll/releases/download/${PGROLL_VER}/pgroll.linux.amd64"
+          sudo curl -fsSL -o /usr/local/bin/pgroll "$URL"
+          sudo chmod +x /usr/local/bin/pgroll
+          pgroll --version
+
       - id: setup
         name: Setup GHC and Cabal
         uses: haskell-actions/setup@v2
@@ -44,10 +53,12 @@ jobs:
         run: cabal build all
 
       - name: Test with coverage
+        timeout-minutes: 20
         run: |
           export PATH="$(pg_config --bindir):$PATH"
           # Ensure .tix files land in a predictable location
           export HPCTIXDIR="$(pwd)/dist-newstyle"
+          export PGCONNECT_TIMEOUT=5
           which cabal
           cabal --version
           ghc --version
