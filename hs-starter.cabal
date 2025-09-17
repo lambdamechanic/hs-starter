@@ -35,7 +35,7 @@ library
         Starter.Server
     other-modules:
         Starter.Database.Generated
-  build-depends:
+    build-depends:
         aeson >=2.2 && <2.3,
         bytestring >=0.11 && <0.13,
         postgresql-simple-url >=0.2 && <0.3,
@@ -79,7 +79,7 @@ test-suite hs-starter-tests
         Starter.Tests.Db
         Starter.Tests.Property
         Starter.Tests.Roboservant
-  build-depends:
+    build-depends:
         hs-starter,
         falsify >=0.2 && <0.3,
         roboservant >=0.1.0.4,

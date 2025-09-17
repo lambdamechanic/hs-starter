@@ -11,7 +11,7 @@ module Starter.Database.OAuth
   , deleteSession
   , upsertUser
   , insertLoginEvent
-  , selectAnyUserId
+  , selectUserCount
   , OAuthSessionRow (..)
   , DbUserRow (..)
   ) where
@@ -20,7 +20,7 @@ import Starter.Prelude hiding (from)
 
 import Data.Aeson (Value)
 import Data.Time (UTCTime)
-import Data.Int (Int32)
+import Data.Int (Int64)
 import qualified GHC.Generics as GHC
 import qualified Generics.SOP as SOP
 import Squeal.PostgreSQL
@@ -133,11 +133,12 @@ insertLoginEvent =
     OnConflictDoRaise
     (Returning_ Nil)
 
--- | Select any user id (or none), to exercise a basic query.
-selectAnyUserId :: Statement AppDb () (Only Int32)
-selectAnyUserId =
+-- | Count all users via an aggregate, requires `users` table to exist.
+selectUserCount :: Statement AppDb () (Only Int64)
+selectUserCount =
   query $
     select_
-      (#users ! #id `as` #fromOnly)
-      (from (table (#public ! #users `as` #users))
-        & limit 1)
+      (countStar `as` #fromOnly)
+      ( from (table (#public ! #users `as` #users))
+          & groupBy Nil
+      )

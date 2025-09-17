@@ -40,7 +40,7 @@ import Starter.Database.OAuth
   , deleteSession
   , insertLoginEvent
   , insertSession
-  , selectAnyUserId
+  , selectUserCount
   , selectSession
   , upsertUser
   )
@@ -85,7 +85,12 @@ server env = healthServer env :<|> oauthServer env
 
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
-  eok <- liftIO $ try $ withAppConnection (dbConfig env) (pure ())
+  eok <- liftIO $ try $ withAppConnection (dbConfig env) $ do
+    result <- PQ.executeParams selectUserCount ()
+    rows <- PQ.getRows result
+    case rows of
+      [PQ.Only _n] -> pure ()
+      _ -> pure ()
   case eok of
     Left (_ex :: SomeException) -> throwError err500 {errBody = "database check failed"}
     Right () -> pure (HealthStatus "ok")

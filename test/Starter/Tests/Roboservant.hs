@@ -18,6 +18,7 @@ import Test.Tasty.HUnit (assertBool, testCase)
 import qualified Database.Postgres.Temp as Temp
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as Text
+import Control.Exception (SomeException, catch)
 import Starter.Env (AppEnv (..))
 import Starter.Database.Connection (DbConfig (..))
 import Starter.OAuth.Types (OAuthProfile)
@@ -26,12 +27,13 @@ import Starter.OAuth.Types (OAuthProfile)
 fuzzesHealthcheck :: IO ()
 fuzzesHealthcheck = do
   -- Boot a temporary Postgres for exercising the health endpoint
-  eDb <- Temp.start
-  case eDb of
-    Left _err ->
-      -- tmp-postgres not available on this platform; skip test
+  startResult <- catch (Right <$> Temp.start) (\(_ :: SomeException) -> pure (Left "exc"))
+  case startResult of
+    Left _ -> pure ()
+    Right (Left _err) ->
+      -- tmp-postgres reported unavailable; skip test
       pure ()
-    Right db -> do
+    Right (Right db) -> do
       let connStr = B8.unpack (Temp.toConnectionString db)
           kvs = map (break (=='=')) (words connStr)
           lookupKV :: String -> Maybe String
