@@ -73,6 +73,7 @@ RUN apt-get update \
 COPY --from=build /opt/app/bin/hs-starter /usr/local/bin/hs-starter
 COPY --from=build /opt/app/bin/pgroll /usr/local/bin/pgroll
 COPY --from=build /workspace/db/pgroll ${APP_HOME}/db/pgroll
+COPY --from=build /workspace/scripts ${APP_HOME}/scripts
 
 EXPOSE 8080
 ENTRYPOINT ["/bin/bash", "-lc"]
