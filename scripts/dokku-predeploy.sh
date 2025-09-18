@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "Starting migrations"
+
 MIGRATIONS_DIR="/opt/app/db/pgroll"
 
 if [[ ! -d "$MIGRATIONS_DIR" ]]; then
