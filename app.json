@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dokku": {
-      "predeploy": "set -euo pipefail; pgroll init --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --log-level=debug; pgroll migrate db/pgroll --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --complete --log-level=debug"
+      "predeploy": "set -euo pipefail; pgroll init --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --log-level=debug; pgroll migrate /opt/app/db/pgroll --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --complete --log-level=debug"
     }
   }
 }
