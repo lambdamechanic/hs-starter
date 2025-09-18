@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dokku": {
-      "predeploy": "set -euo pipefail; ls -al /opt/app/db/pgroll; pgroll init --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll; pgroll migrate /opt/app/db/pgroll --postgres-url \"$DATABASE_URL\" --schema public --pgroll-schema pgroll --complete"
+      "predeploy": "/bin/bash /opt/app/scripts/dokku-predeploy.sh"
     }
   }
 }
