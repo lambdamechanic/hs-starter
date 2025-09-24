@@ -19,6 +19,7 @@ import Roboservant.Types (Atom (..), Breakdown)
 import Roboservant.Types.Config (defaultConfig)
 import Squeal.PostgreSQL
 import Starter.Database.Connection (DbConfig (..))
+import Starter.Auth.Firebase (firebaseAuthDisabled)
 import Starter.Env (AppEnv (..))
 import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
@@ -61,7 +62,8 @@ fuzzesHealthcheck = do
                 otelCollectorEndpoint = Nothing,
                 otelCollectorHeaders = Nothing,
                 dbConfig = dbCfg,
-                authorizeLogin = const (pure True)
+                authorizeLogin = const (pure True),
+                firebaseAuth = firebaseAuthDisabled
               }
       putStrLn
         ( "tmp-postgres connection: host="

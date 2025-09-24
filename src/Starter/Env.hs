@@ -3,6 +3,7 @@ module Starter.Env
   )
 where
 
+import Starter.Auth.Firebase (FirebaseAuth)
 import Starter.Database.Connection (DbConfig)
 import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
@@ -14,5 +15,6 @@ data AppEnv = AppEnv
     otelCollectorEndpoint :: Maybe String,
     otelCollectorHeaders :: Maybe String,
     dbConfig :: DbConfig,
-    authorizeLogin :: OAuthProfile -> IO Bool
+    authorizeLogin :: OAuthProfile -> IO Bool,
+    firebaseAuth :: FirebaseAuth
   }

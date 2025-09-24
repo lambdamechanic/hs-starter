@@ -17,6 +17,7 @@ import Network.HTTP.Types (methodGet, status200)
 import Network.Wai (Application, rawPathInfo, requestMethod, pathInfo)
 import Network.Wai.Test
 import Starter.Database.Connection (DbConfig (..))
+import Starter.Auth.Firebase (firebaseAuthDisabled)
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Starter.Server (HealthCheckReport (..), HealthStatus (..), app)
@@ -51,7 +52,8 @@ healthOk = do
                     otelCollectorEndpoint = Nothing,
                     otelCollectorHeaders = Nothing,
                     dbConfig = dbCfg,
-                    authorizeLogin = const (pure True)
+                    authorizeLogin = const (pure True),
+                    firebaseAuth = firebaseAuthDisabled
                   }
               application :: Application
               application = app env

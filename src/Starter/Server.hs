@@ -12,6 +12,7 @@ module Starter.Server
     Api,
     HealthApi,
     OAuthApi,
+    PrivateApi,
     server,
     healthServer,
     HealthStatus (..),
@@ -44,6 +45,7 @@ import Starter.Database.OAuth
     selectUserCount,
     upsertUser,
   )
+import Starter.Auth.Firebase (FirebaseUser, Protected, firebaseContext)
 import Starter.Env (AppEnv (..))
 import Starter.OAuth.Types
   ( OAuthCallbackRequest (..),
@@ -65,7 +67,12 @@ type OAuthApi =
            :<|> "callback" :> ReqBody '[JSON] OAuthCallbackRequest :> Post '[JSON] OAuthCallbackResponse
        )
 
-type Api = HealthApi :<|> OAuthApi
+type PrivateApi =
+  Protected
+    ( "me" :> Get '[JSON] FirebaseUser
+    )
+
+type Api = HealthApi :<|> OAuthApi :<|> PrivateApi
 
 data HealthStatus = HealthStatus
   { status :: Text,
@@ -104,10 +111,10 @@ apiProxy :: Proxy Api
 apiProxy = Proxy
 
 app :: AppEnv -> Application
-app env = serve apiProxy (server env)
+app env = serveWithContext apiProxy (firebaseContext (firebaseAuth env)) (server env)
 
 server :: AppEnv -> Server Api
-server env = healthServer env :<|> oauthServer env
+server env = healthServer env :<|> oauthServer env :<|> privateServer env
 
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
@@ -187,6 +194,13 @@ healthServer env = do
 oauthServer :: AppEnv -> Server OAuthApi
 oauthServer env provider =
   startHandler env provider :<|> callbackHandler env provider
+
+
+privateServer :: AppEnv -> Server PrivateApi
+privateServer _ user = meHandler user
+
+meHandler :: FirebaseUser -> Handler FirebaseUser
+meHandler = pure
 
 startHandler :: AppEnv -> Text -> OAuthStartRequest -> Handler OAuthStartResponse
 startHandler env provider OAuthStartRequest {redirectUri = redirectUriValue, scopes} = do
