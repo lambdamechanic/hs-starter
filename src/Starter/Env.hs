@@ -4,6 +4,7 @@ module Starter.Env
 where
 
 import Starter.Auth.Firebase (FirebaseAuth, FirebaseUser)
+import Starter.Auth.Session (SessionConfig)
 import Starter.Database.Connection (DbConfig)
 import Starter.Prelude
 
@@ -15,5 +16,6 @@ data AppEnv = AppEnv
     otelCollectorHeaders :: Maybe String,
     dbConfig :: DbConfig,
     authorizeLogin :: FirebaseUser -> IO Bool,
-    firebaseAuth :: FirebaseAuth
+    firebaseAuth :: FirebaseAuth,
+    sessionConfig :: SessionConfig
   }

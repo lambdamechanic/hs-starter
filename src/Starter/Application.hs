@@ -15,6 +15,7 @@ import OpenTelemetry.Trace
     shutdownTracerProvider,
   )
 import Starter.Auth.Firebase (FirebaseUser, loadFirebaseAuthFromEnv)
+import Starter.Auth.Session (loadSessionConfigFromEnv)
 import Starter.Database.Connection (loadDbConfigFromEnv)
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
@@ -46,6 +47,8 @@ loadAppEnv = do
   dbConfig <- loadDbConfigFromEnv
   firebaseAuth <-
     loadFirebaseAuthFromEnv >>= either (ioError . userError . Text.unpack) pure
+  sessionConfig <-
+    loadSessionConfigFromEnv >>= either (ioError . userError . Text.unpack) pure
   let appPort = fromMaybe 8080 (portEnv >>= readMaybe)
       otelServiceName = maybe "hs-starter" Text.pack serviceNameEnv
   when (isNothing serviceNameEnv) $ setEnv "OTEL_SERVICE_NAME" (Text.unpack otelServiceName)
@@ -57,7 +60,8 @@ loadAppEnv = do
         otelCollectorHeaders = collectorHeaders,
         dbConfig,
         authorizeLogin = defaultAuthorizeLogin,
-        firebaseAuth
+        firebaseAuth,
+        sessionConfig
       }
 
 withTracerProvider :: (TracerProvider -> IO a) -> IO a

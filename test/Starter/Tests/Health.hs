@@ -18,6 +18,8 @@ import Network.Wai (Application, rawPathInfo, requestMethod, pathInfo)
 import Network.Wai.Test
 import Starter.Database.Connection (DbConfig (..))
 import Starter.Auth.Firebase (firebaseAuthDisabled)
+import Starter.Auth.Session (SessionConfig (..))
+import qualified Data.ByteString.Char8 as BC
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Starter.Server (HealthCheckReport (..), HealthStatus (..), app)
@@ -25,6 +27,15 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, (@?=), testCase)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
+
+testSessionConfig :: SessionConfig
+testSessionConfig =
+  SessionConfig
+    { sessionSecret = BC.pack "test-session-secret",
+      sessionCookieName = BC.pack "hs_test_session",
+      sessionCookieMaxAge = 3600,
+      sessionLoginPath = "/login"
+    }
 
 tests :: TestTree
 tests =
@@ -53,7 +64,8 @@ healthOk = do
                     otelCollectorHeaders = Nothing,
                     dbConfig = dbCfg,
                     authorizeLogin = const (pure True),
-                    firebaseAuth = firebaseAuthDisabled
+                    firebaseAuth = firebaseAuthDisabled,
+                    sessionConfig = testSessionConfig
                   }
               application :: Application
               application = app env

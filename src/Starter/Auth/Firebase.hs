@@ -9,12 +9,10 @@ module Starter.Auth.Firebase
     FirebaseAuthConfig (..),
     FirebaseAuthError (..),
     FirebaseUser (..),
-    Protected,
     firebaseAuthDisabled,
-    firebaseAuthHandler,
-    firebaseContext,
     loadFirebaseAuthFromEnv,
     mkFirebaseAuth,
+    toServerError
   )
 where
 
@@ -49,9 +47,10 @@ import Data.ByteString.Lazy qualified as BL
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8', encodeUtf8)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Time (NominalDiffTime, UTCTime, addUTCTime, getCurrentTime)
 import Network.HTTP.Client
   ( Manager,
@@ -62,27 +61,17 @@ import Network.HTTP.Client
     responseStatus,
   )
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (hAuthorization, statusIsSuccessful)
-import Network.Wai (Request, requestHeaders)
-import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (..))
+import Network.HTTP.Types (statusIsSuccessful)
 import Servant
-import Servant.Server.Experimental.Auth (AuthHandler, AuthServerData, mkAuthHandler)
 import Starter.Prelude
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
 
--- | Convenience type alias for guarding routes with Firebase auth.
-type Protected api = AuthProtect "firebase" :> api
-
--- | Servant auth handler will provide a 'FirebaseUser' for protected routes.
-type instance AuthServerData (AuthProtect "firebase") = FirebaseUser
-
-instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
-  getEndpoint _ = getEndpoint (Proxy :: Proxy api)
-
 -- | Runtime Firebase authentication configuration.
 data FirebaseAuthConfig = FirebaseAuthConfig
   { firebaseConfigProjectId :: Text,
+    firebaseConfigApiKey :: Text,
+    firebaseConfigAuthDomain :: Text,
     firebaseConfigJwksUri :: Text,
     firebaseConfigAllowedSkew :: NominalDiffTime,
     firebaseConfigCacheTtl :: NominalDiffTime
@@ -92,6 +81,8 @@ data FirebaseAuthConfig = FirebaseAuthConfig
 -- | Holds the verifier used by the Servant auth handler.
 data FirebaseAuth = FirebaseAuth
   { firebaseProjectId :: Text,
+    firebaseApiKey :: Text,
+    firebaseAuthDomain :: Text,
     firebaseVerifyIdToken :: Text -> IO (Either FirebaseAuthError FirebaseUser)
   }
 
@@ -114,7 +105,20 @@ data FirebaseUser = FirebaseUser
     picture :: Maybe Text,
     claims :: HashMap.HashMap Text Value
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+
+instance Aeson.FromJSON FirebaseUser where
+  parseJSON =
+    Aeson.withObject "FirebaseUser" $ \obj -> do
+      uid <- obj Aeson..: "uid"
+      issuer <- obj Aeson..: "issuer"
+      audience <- obj Aeson..: "audience"
+      email <- obj Aeson..:? "email"
+      emailVerified <- obj Aeson..:? "emailVerified"
+      name <- obj Aeson..:? "name"
+      picture <- obj Aeson..:? "picture"
+      claims <- fromMaybe mempty <$> obj Aeson..:? "claims"
+      pure FirebaseUser {uid, issuer, audience, email, emailVerified, name, picture, claims}
 
 instance Aeson.ToJSON FirebaseUser where
   toJSON FirebaseUser {uid, issuer, audience, email, emailVerified, name, picture, claims} =
@@ -129,23 +133,13 @@ instance Aeson.ToJSON FirebaseUser where
         "claims" Aeson..= claims
       ]
 
--- | Construct an auth handler for Servant using the configured verifier.
-firebaseAuthHandler :: FirebaseAuth -> AuthHandler Request FirebaseUser
-firebaseAuthHandler auth =
-  mkAuthHandler $ \req -> do
-    token <- either Except.throwError pure (extractBearer req)
-    result <- liftIO (firebaseVerifyIdToken auth token)
-    either (Except.throwError . toServerError) pure result
-
--- | Build the Servant context needed for 'serveWithContext'.
-firebaseContext :: FirebaseAuth -> Context (AuthHandler Request FirebaseUser ': '[])
-firebaseContext auth = firebaseAuthHandler auth :. EmptyContext
-
 -- | A placeholder configuration that always reports Firebase auth as unavailable.
 firebaseAuthDisabled :: FirebaseAuth
 firebaseAuthDisabled =
   FirebaseAuth
     { firebaseProjectId = "firebase-disabled",
+      firebaseApiKey = "firebase-disabled",
+      firebaseAuthDomain = "firebase-disabled",
       firebaseVerifyIdToken = \_ -> pure (Left (FirebaseAuthUnavailable "Firebase auth is not configured"))
     }
 
@@ -157,24 +151,42 @@ loadFirebaseAuthFromEnv = do
     Nothing -> pure (Left "FIREBASE_PROJECT_ID is not set")
     Just rawProjectId -> do
       let projectId = Text.pack rawProjectId
-      jwksUri <- maybe defaultJwksUri Text.pack <$> lookupEnv "FIREBASE_CERTS_URL"
-      skewSeconds <- lookupEnv "FIREBASE_TOKEN_SKEW_SECONDS"
-      clockSkew <- case skewSeconds of
-        Nothing -> pure defaultSkew
-        Just rawSkew ->
-          case readMaybe rawSkew :: Maybe Double of
-            Nothing -> pure defaultSkew
-            Just seconds
-              | seconds < 0 -> pure defaultSkew
-              | otherwise -> pure (realToFrac seconds)
-      auth <- mkFirebaseAuth
-        FirebaseAuthConfig
-          { firebaseConfigProjectId = projectId,
-            firebaseConfigJwksUri = jwksUri,
-            firebaseConfigAllowedSkew = clockSkew,
-            firebaseConfigCacheTtl = defaultCacheTtl
-          }
-      pure (Right auth)
+      apiKeyEnv <- lookupEnv "FIREBASE_API_KEY"
+      case apiKeyEnv of
+        Nothing -> pure (Left "FIREBASE_API_KEY is not set")
+        Just rawApiKey -> do
+          let apiKey = Text.pack rawApiKey
+          if Text.null apiKey
+            then pure (Left "FIREBASE_API_KEY cannot be empty")
+            else do
+              jwksUri <- maybe defaultJwksUri Text.pack <$> lookupEnv "FIREBASE_CERTS_URL"
+              skewSeconds <- lookupEnv "FIREBASE_TOKEN_SKEW_SECONDS"
+              clockSkew <- case skewSeconds of
+                Nothing -> pure defaultSkew
+                Just rawSkew ->
+                  case readMaybe rawSkew :: Maybe Double of
+                    Nothing -> pure defaultSkew
+                    Just seconds
+                      | seconds < 0 -> pure defaultSkew
+                      | otherwise -> pure (realToFrac seconds)
+              authDomainOverride <- lookupEnv "FIREBASE_AUTH_DOMAIN"
+              let defaultDomain = projectId <> ".firebaseapp.com"
+                  authDomain =
+                    case fmap Text.pack authDomainOverride of
+                      Nothing -> defaultDomain
+                      Just domainText | Text.null domainText -> defaultDomain
+                      Just domainText -> domainText
+              auth <-
+                mkFirebaseAuth
+                  FirebaseAuthConfig
+                    { firebaseConfigProjectId = projectId,
+                      firebaseConfigApiKey = apiKey,
+                      firebaseConfigAuthDomain = authDomain,
+                      firebaseConfigJwksUri = jwksUri,
+                      firebaseConfigAllowedSkew = clockSkew,
+                      firebaseConfigCacheTtl = defaultCacheTtl
+                    }
+              pure (Right auth)
 
 -- | Construct a Firebase verifier using the provided configuration.
 mkFirebaseAuth :: FirebaseAuthConfig -> IO FirebaseAuth
@@ -191,6 +203,8 @@ mkFirebaseAuth config = do
   pure
     FirebaseAuth
       { firebaseProjectId = firebaseConfigProjectId config,
+        firebaseApiKey = firebaseConfigApiKey config,
+        firebaseAuthDomain = firebaseConfigAuthDomain config,
         firebaseVerifyIdToken = verifyFirebaseToken runtime
       }
   where
@@ -304,26 +318,6 @@ fromValue v =
     Success a -> Just a
 
 -- | Extract a bearer token from the incoming request.
-extractBearer :: Request -> Either ServerError Text
-extractBearer req =
-  case lookup hAuthorization (requestHeaders req) of
-    Nothing -> Left unauthorizedMissing
-    Just headerValue ->
-      case decodeUtf8' headerValue of
-        Left _ -> Left unauthorizedInvalid
-        Right decoded ->
-          case parseBearer decoded of
-            Nothing -> Left unauthorizedInvalid
-            Just token -> Right token
-  where
-    parseBearer txt =
-      case Text.words (Text.strip txt) of
-        [prefix, token]
-          | Text.toLower prefix == "bearer" -> Just token
-        _ -> Nothing
-    unauthorizedMissing = attachWww err401 {errBody = textBody "Missing Authorization header"}
-    unauthorizedInvalid = attachWww err401 {errBody = textBody "Invalid Authorization header"}
-
 -- | Map domain errors onto Servant 'ServerError's.
 toServerError :: FirebaseAuthError -> ServerError
 toServerError = \case

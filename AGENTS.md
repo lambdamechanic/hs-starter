@@ -29,3 +29,4 @@ Follow `type: summary` messages (examples: `feat: add oauth login route`, `chore
 
 ## Environment & Tooling Notes
 Install pgroll, Docker, and the upstream `squealgen` CLI (see https://github.com/mwotton/squealgen) when working migrations; `scripts/squealgen.sh` expects all three plus a local Postgres image. Export sensitive settings via environment variables—not version control. GitHub Actions re-runs Cabal builds/tests with caching, so keep dependencies tidy and regenerate schema files before pushing.
+Provide Firebase client config via `FIREBASE_API_KEY` and (optionally) `FIREBASE_AUTH_DOMAIN`, and set a strong `SESSION_SECRET` so the login exchange can issue signed cookies.
