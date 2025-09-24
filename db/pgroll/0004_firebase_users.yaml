@@ -1,0 +1,22 @@
+operations:
+  - sql:
+      up: |
+        ALTER TABLE users RENAME COLUMN provider TO issuer;
+        ALTER TABLE users RENAME COLUMN subject TO uid;
+        ALTER TABLE users RENAME CONSTRAINT users_provider_subject_key TO users_issuer_uid_key;
+        ALTER TABLE oauth_login_events RENAME COLUMN provider TO issuer;
+        DROP TABLE IF EXISTS oauth_sessions CASCADE;
+      down: |
+        DROP TABLE IF EXISTS oauth_sessions;
+        CREATE TABLE oauth_sessions (
+          state text PRIMARY KEY,
+          code_verifier text NOT NULL,
+          provider text NOT NULL,
+          redirect_uri text NOT NULL,
+          requested_scopes text NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        ALTER TABLE oauth_login_events RENAME COLUMN issuer TO provider;
+        ALTER TABLE users RENAME CONSTRAINT users_issuer_uid_key TO users_provider_subject_key;
+        ALTER TABLE users RENAME COLUMN uid TO subject;
+        ALTER TABLE users RENAME COLUMN issuer TO provider;

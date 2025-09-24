@@ -14,10 +14,9 @@ import OpenTelemetry.Trace
     initializeGlobalTracerProvider,
     shutdownTracerProvider,
   )
-import Starter.Auth.Firebase (loadFirebaseAuthFromEnv)
+import Starter.Auth.Firebase (FirebaseUser, loadFirebaseAuthFromEnv)
 import Starter.Database.Connection (loadDbConfigFromEnv)
 import Starter.Env (AppEnv (..))
-import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
 import Starter.Server (apiProxy, app)
 import System.Environment (lookupEnv, setEnv)
@@ -66,5 +65,5 @@ withTracerProvider =
   bracket initializeGlobalTracerProvider shutdownTracerProvider
 
 -- | Default authorization hook that approves all logins.
-defaultAuthorizeLogin :: OAuthProfile -> IO Bool
+defaultAuthorizeLogin :: FirebaseUser -> IO Bool
 defaultAuthorizeLogin _profile = pure True

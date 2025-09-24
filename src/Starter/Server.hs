@@ -11,7 +11,6 @@ module Starter.Server
     apiProxy,
     Api,
     HealthApi,
-    OAuthApi,
     PrivateApi,
     server,
     healthServer,
@@ -28,51 +27,31 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
-import Data.UUID qualified as UUID
-import Data.UUID.V4 qualified as UUID
 import Data.Version (showVersion)
 import Servant
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Database.Connection (DbConfig (..), withAppConnection)
-import Starter.Database.OAuth
+import Starter.Database.Users
   ( DbUserRow (..),
-    OAuthSessionRow (..),
-    deleteSession,
     insertLoginEvent,
-    insertSession,
-    selectSession,
     selectUserCount,
     upsertUser,
   )
-import Starter.Auth.Firebase (FirebaseUser, Protected, firebaseContext)
+import Starter.Auth.Firebase (FirebaseUser (..), Protected, firebaseContext)
 import Starter.Env (AppEnv (..))
-import Starter.OAuth.Types
-  ( OAuthCallbackRequest (..),
-    OAuthCallbackResponse (..),
-    OAuthProfile (..),
-    OAuthStartRequest (..),
-    OAuthStartResponse (..),
-  )
 import Starter.Prelude
 import Paths_hs_starter qualified as Paths
 
 -- | API type definition for the Servant server.
 type HealthApi = "health" :> Get '[JSON] HealthStatus
 
-type OAuthApi =
-  "oauth"
-    :> Capture "provider" Text
-    :> ( "start" :> ReqBody '[JSON] OAuthStartRequest :> Post '[JSON] OAuthStartResponse
-           :<|> "callback" :> ReqBody '[JSON] OAuthCallbackRequest :> Post '[JSON] OAuthCallbackResponse
-       )
-
 type PrivateApi =
   Protected
     ( "me" :> Get '[JSON] FirebaseUser
     )
 
-type Api = HealthApi :<|> OAuthApi :<|> PrivateApi
+type Api = HealthApi :<|> PrivateApi
 
 data HealthStatus = HealthStatus
   { status :: Text,
@@ -114,7 +93,7 @@ app :: AppEnv -> Application
 app env = serveWithContext apiProxy (firebaseContext (firebaseAuth env)) (server env)
 
 server :: AppEnv -> Server Api
-server env = healthServer env :<|> oauthServer env :<|> privateServer env
+server env = healthServer env :<|> privateServer env
 
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
@@ -191,63 +170,30 @@ healthServer env = do
                 checks = HashMap.fromList [("database", databaseReport)]
               }
 
-oauthServer :: AppEnv -> Server OAuthApi
-oauthServer env provider =
-  startHandler env provider :<|> callbackHandler env provider
-
-
 privateServer :: AppEnv -> Server PrivateApi
-privateServer _ user = meHandler user
+privateServer env user = meHandler env user
 
-meHandler :: FirebaseUser -> Handler FirebaseUser
-meHandler = pure
-
-startHandler :: AppEnv -> Text -> OAuthStartRequest -> Handler OAuthStartResponse
-startHandler env provider OAuthStartRequest {redirectUri = redirectUriValue, scopes} = do
-  stateValue <- liftIO randomState
-  codeVerifier <- liftIO randomVerifier
-  let requestedScopes = Text.intercalate " " scopes
-  liftIO $ withAppConnection (dbConfig env) $ do
-    PQ.manipulateParams_ insertSession (stateValue, codeVerifier, provider, redirectUriValue, requestedScopes)
-  let authorizationUrl = buildAuthorizationUrl provider redirectUriValue stateValue requestedScopes
-  pure OAuthStartResponse {state = stateValue, codeVerifier, authorizationUrl}
-
-callbackHandler :: AppEnv -> Text -> OAuthCallbackRequest -> Handler OAuthCallbackResponse
-callbackHandler env provider request@OAuthCallbackRequest {state = callbackState, profile = callbackProfile} = do
-  sessionRow <- liftIO (loadSession env callbackState) >>= maybe (throwError err400 {errBody = "unknown oauth state"}) pure
-  when (sessionProvider sessionRow /= provider)
-    $ throwError err400 {errBody = "provider mismatch"}
-  allowed <- liftIO (authorizeLogin env callbackProfile)
+meHandler :: AppEnv -> FirebaseUser -> Handler FirebaseUser
+meHandler env user = do
   now <- liftIO getCurrentTime
+  allowed <- liftIO (authorizeLogin env user)
   dbUser <-
-    liftIO (upsertUserRecord env provider callbackProfile allowed now)
+    liftIO (upsertFirebaseUser env user allowed now)
       >>= maybe (throwError err500 {errBody = "failed to upsert user"}) pure
-  liftIO $ recordLogin env dbUser provider request allowed now
-  liftIO $ clearSession env callbackState
-  let DbUserRow {userId = dbUserId} = dbUser
-  pure
-    OAuthCallbackResponse
-      { allowed,
-        redirectUri = sessionRedirectUri sessionRow,
-        userId = dbUserId
-      }
+  liftIO $ recordFirebaseLogin env dbUser user allowed now
+  if allowed
+    then pure user
+    else throwError (forbiddenLogin user)
 
-loadSession :: AppEnv -> Text -> IO (Maybe OAuthSessionRow)
-loadSession env stateValue =
-  withAppConnection (dbConfig env) $ do
-    result <- PQ.executeParams selectSession (PQ.Only stateValue)
-    rows <- PQ.getRows result
-    pure (listToMaybe rows)
-
-upsertUserRecord :: AppEnv -> Text -> OAuthProfile -> Bool -> UTCTime -> IO (Maybe DbUserRow)
-upsertUserRecord env provider OAuthProfile {subject, email, displayName, avatarUrl} allowed now =
+upsertFirebaseUser :: AppEnv -> FirebaseUser -> Bool -> UTCTime -> IO (Maybe DbUserRow)
+upsertFirebaseUser env FirebaseUser {uid = subject, issuer = issuerValue, email = userEmail, name = displayName, picture = avatarUrl} allowed now =
   withAppConnection (dbConfig env) $ do
     result <-
       PQ.manipulateParams
         upsertUser
-        ( provider,
+        ( issuerValue,
           subject,
-          email,
+          userEmail,
           displayName,
           avatarUrl,
           allowed,
@@ -257,39 +203,37 @@ upsertUserRecord env provider OAuthProfile {subject, email, displayName, avatarU
     rows <- PQ.getRows result
     pure (listToMaybe rows)
 
-recordLogin :: AppEnv -> DbUserRow -> Text -> OAuthCallbackRequest -> Bool -> UTCTime -> IO ()
-recordLogin env DbUserRow {userId = dbUserId} provider payload allowed now =
-  withAppConnection (dbConfig env) $ do
-    PQ.manipulateParams_
+recordFirebaseLogin :: AppEnv -> DbUserRow -> FirebaseUser -> Bool -> UTCTime -> IO ()
+recordFirebaseLogin env DbUserRow {userId = dbUserId} firebaseUser@FirebaseUser {issuer = issuerValue} allowed now =
+  withAppConnection (dbConfig env)
+    $ PQ.manipulateParams_
       insertLoginEvent
       ( dbUserId,
-        provider,
-        Jsonb (Aeson.toJSON payload),
+        issuerValue,
+        Jsonb (Aeson.toJSON firebaseUser),
         allowed,
         now
       )
 
-clearSession :: AppEnv -> Text -> IO ()
-clearSession env stateValue =
-  withAppConnection (dbConfig env)
-    $ PQ.manipulateParams_ deleteSession (PQ.Only stateValue)
+forbiddenLogin :: FirebaseUser -> ServerError
+forbiddenLogin FirebaseUser {uid = subject, issuer = issuerValue} =
+  attachJson err403
+    { errBody =
+        encode
+          ErrorResponse
+            { error =
+                ErrorBody
+                  { code = "LOGIN_NOT_ALLOWED",
+                    message = "User is not permitted to log in",
+                    details =
+                      object
+                        [ "uid" .= subject,
+                          "issuer" .= issuerValue
+                        ]
+                  }
+            }
+    }
 
-randomState :: IO Text
-randomState = UUID.toText <$> UUID.nextRandom
-
-randomVerifier :: IO Text
-randomVerifier = UUID.toText <$> UUID.nextRandom
-
-buildAuthorizationUrl :: Text -> Text -> Text -> Text -> Text
-buildAuthorizationUrl provider redirectUri state scopeText =
-  "https://auth.example.com/"
-    <> provider
-    <> "?redirect_uri="
-    <> redirectUri
-    <> "&state="
-    <> state
-    <> scopesFragment
-  where
-    scopesFragment
-      | Text.null scopeText = ""
-      | otherwise = "&scope=" <> Text.replace " " "+" scopeText
+attachJson :: ServerError -> ServerError
+attachJson err =
+  err {errHeaders = ("Content-Type", "application/json; charset=utf-8") : filter ((/= "Content-Type") . fst) (errHeaders err)}

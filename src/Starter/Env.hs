@@ -3,9 +3,8 @@ module Starter.Env
   )
 where
 
-import Starter.Auth.Firebase (FirebaseAuth)
+import Starter.Auth.Firebase (FirebaseAuth, FirebaseUser)
 import Starter.Database.Connection (DbConfig)
-import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
 
 -- | Global environment values shared across the application runtime.
@@ -15,6 +14,6 @@ data AppEnv = AppEnv
     otelCollectorEndpoint :: Maybe String,
     otelCollectorHeaders :: Maybe String,
     dbConfig :: DbConfig,
-    authorizeLogin :: OAuthProfile -> IO Bool,
+    authorizeLogin :: FirebaseUser -> IO Bool,
     firebaseAuth :: FirebaseAuth
   }

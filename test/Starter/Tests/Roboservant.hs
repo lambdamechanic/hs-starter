@@ -21,7 +21,6 @@ import Squeal.PostgreSQL
 import Starter.Database.Connection (DbConfig (..))
 import Starter.Auth.Firebase (firebaseAuthDisabled)
 import Starter.Env (AppEnv (..))
-import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
 import Starter.Server (HealthApi, HealthStatus, healthServer)
 import Test.Tasty (TestTree, testGroup)

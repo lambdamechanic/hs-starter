@@ -27,11 +27,10 @@ library
     exposed-modules:
         Starter.Application
         Starter.Auth.Firebase
-        Starter.Database.OAuth
+        Starter.Database.Users
         Starter.Database.Connection
         Starter.Database.Schema
         Starter.Env
-        Starter.OAuth.Types
         Starter.Prelude
         Starter.Server
     other-modules:

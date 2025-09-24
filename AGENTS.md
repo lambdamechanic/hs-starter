@@ -10,7 +10,7 @@ Run `cabal build` for a full compile and `cabal test` to execute the tasty suite
 Format Haskell with `ormolu` (`cabal run ormolu -- --mode inplace $(git ls-files '*.hs')`) before pushing. Stick to two-space indentation, GHC2021 extensions, and module prefixes of `Starter.<Area>`. Keep exported data types and constructors UpperCamelCase; local helpers may remain lowerCamelCase. Generated files must remain ASCII.
 
 ## Database & Migrations Workflow
-Author schema changes in pgroll YAML first and append new files to `db/pgroll/.ledger`. After running migrations (see `scripts/squealgen.sh`), regenerate Haskell types with the upstream `squealgen` CLI. Never hand-edit `Starter.Database.Generated`; treat it as a build artifact.
+Author schema changes in pgroll YAML first and append new files to `db/pgroll/.ledger`. Once the migration file is staged, run `scripts/squealgen.sh` to apply the pgroll stack in a disposable Postgres container and regenerate `src/Starter/Database/Generated.hs` via the upstream `squealgen` CLI. Never hand-edit `Starter.Database.Generated`; treat it as a build artifact.
 All database interaction must use Squeal; do not introduce alternative PostgreSQL clients.
 
 ## Testing Guidelines

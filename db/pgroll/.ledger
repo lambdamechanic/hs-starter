@@ -1,3 +1,4 @@
 0001_bootstrap.yaml
 0002_add_users_and_logins.yaml
 0003_oauth_sessions.yaml
+0004_firebase_users.yaml
