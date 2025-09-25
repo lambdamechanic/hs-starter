@@ -38,8 +38,11 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
 import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
+import Network.HTTP.Types (hContentType, status200)
+import Network.Wai (responseFile)
+import qualified Network.Wai as Wai
+import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ss404Handler)
 import Servant
-import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
@@ -47,6 +50,7 @@ import Starter.Auth.Session (SessionConfig (..), SessionUser (..), mkSessionCook
 import Starter.Database.Connection (DbConfig (..), withAppConnection)
 import Starter.Database.Users (DbUserRow (..), insertLoginEvent, selectUserCount, upsertUser)
 import Starter.Env (AppEnv (..))
+import System.FilePath ((</>))
 import Starter.Prelude
 import Paths_hs_starter qualified as Paths
 import Web.Cookie (defaultSetCookie, renderSetCookie, sameSiteLax, setCookieExpires, setCookieHttpOnly, setCookieMaxAge, setCookieName, setCookiePath, setCookieSameSite, setCookieSecure, setCookieValue)
@@ -172,7 +176,16 @@ server :: AppEnv -> Server Api
 server env = healthServer env :<|> firebaseConfigServer env :<|> sessionServer env :<|> privateServer env
 
 staticServer :: AppEnv -> Server Raw
-staticServer env = serveDirectoryWebApp (frontendDir env)
+staticServer env = serveDirectoryWith (spaSettings (frontendDir env))
+
+spaSettings :: FilePath -> StaticSettings
+spaSettings rootDir =
+  let settings = defaultWebAppSettings rootDir
+   in settings {ss404Handler = Just (serveSpaIndex rootDir)}
+
+serveSpaIndex :: FilePath -> Wai.Application
+serveSpaIndex rootDir _ respondFn =
+  respondFn (responseFile status200 [(hContentType, "text/html")] (rootDir </> "index.html") Nothing)
 
 firebaseConfigServer :: AppEnv -> Server FirebaseConfigApi
 firebaseConfigServer env =
