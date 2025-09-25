@@ -2,6 +2,7 @@
 
 FROM ubuntu:22.04 AS build
 ARG PGROLL_VERSION=0.14.2
+ARG NODE_VERSION=20.11.1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
@@ -11,6 +12,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
          build-essential pkg-config git \
          libgmp-dev libpq-dev zlib1g-dev \
     && update-ca-certificates
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      | tar -xJ -C /usr/local --strip-components=1
 
 # Install ghcup, GHC and Cabal
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
@@ -25,6 +28,9 @@ RUN --mount=type=cache,target=/root/.ghcup \
   && ghcup set cabal 3.12.1.0
 WORKDIR /workspace
 
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN --mount=type=cache,target=/root/.npm npm ci --prefix frontend
+
 COPY hs-starter.cabal cabal.project cabal.project.freeze ./
 RUN --mount=type=cache,target=/root/.ghcup \
     --mount=type=cache,target=/root/.cabal/store \
@@ -38,6 +44,7 @@ RUN --mount=type=cache,target=/root/.ghcup \
     && cabal build --only-dependencies
 
 COPY . .
+RUN --mount=type=cache,target=/root/.npm npm run build --prefix frontend
 RUN --mount=type=cache,target=/root/.ghcup \
     --mount=type=cache,target=/root/.cabal/store \
     --mount=type=cache,target=/root/.cabal/packages \
@@ -74,6 +81,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
 
 COPY --from=build /opt/app/bin/hs-starter /usr/local/bin/hs-starter
 COPY --from=build /opt/app/bin/pgroll /usr/local/bin/pgroll
+COPY --from=build /workspace/frontend/build ${APP_HOME}/frontend
 COPY --from=build /workspace/db/pgroll ${APP_HOME}/db/pgroll
 COPY --from=build /workspace/scripts ${APP_HOME}/scripts
 

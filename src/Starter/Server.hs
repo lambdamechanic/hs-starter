@@ -10,14 +10,18 @@
 module Starter.Server
   ( app,
     apiProxy,
+    appApiProxy,
     Api,
     HealthApi,
-    PublicApi,
+    FirebaseConfigApi,
+    SessionApi,
     PrivateApi,
     server,
     healthServer,
     HealthStatus (..),
     HealthCheckReport (..),
+    FirebaseClientConfig (..),
+    UserProfileResponse (..)
   )
 where
 
@@ -25,127 +29,34 @@ import Control.Exception (SomeException, displayException, throwIO, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON, ToJSON, Value, encode, object, (.=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
+import Data.ByteString.Builder (toLazyByteString)
 import qualified Data.ByteString.Lazy as BL
-import Data.Bool (bool)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Hashable (Hashable)
-import Data.ByteString.Builder (toLazyByteString)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
-import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
+import Data.Time (UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
-import Lucid (Html, ToHtml (..), toHtmlRaw)
-import Lucid.Base (renderBS)
-import Lucid.Html5
-  ( a_,
-    alt_,
-    body_,
-    charset_,
-    class_,
-    content_,
-    div_,
-    dl_,
-    dd_,
-    doctypehtml_,
-    dt_,
-    footer_,
-    head_,
-    h1_,
-    h2_,
-    html_,
-    href_,
-    id_,
-    img_,
-    lang_,
-    link_,
-    rel_,
-    main_,
-    meta_,
-    name_,
-    nav_,
-    p_,
-    script_,
-    src_,
-    title_,
-    type_
-  )
+import Network.HTTP.Types (hContentType, status200)
+import Network.Wai (responseFile)
+import qualified Network.Wai as Wai
+import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ss404Handler)
 import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
 import Servant
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
-import Starter.Database.Connection (DbConfig (..), withAppConnection)
-import Starter.Database.Users
-  ( DbUserRow (..),
-    insertLoginEvent,
-    selectUserCount,
-    upsertUser,
-  )
 import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
-import Starter.Auth.Session (Protected, SessionUser (..), mkSessionCookie, sessionContext)
+import Starter.Auth.Session (SessionConfig (..), SessionUser (..), mkSessionCookie, sessionContext)
+import Starter.Database.Connection (DbConfig (..), withAppConnection)
+import Starter.Database.Users (DbUserRow (..), insertLoginEvent, selectUserCount, upsertUser)
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Paths_hs_starter qualified as Paths
-import Web.Cookie (renderSetCookie)
+import System.FilePath ((</>))
+import Web.Cookie (defaultSetCookie, renderSetCookie, sameSiteLax, setCookieExpires, setCookieHttpOnly, setCookieMaxAge, setCookieName, setCookiePath, setCookieSameSite, setCookieSecure, setCookieValue)
 
--- | HTML response type rendered via lucid.
-data HtmlView
-
-instance Accept HtmlView where
-  contentType _ = "text/html; charset=utf-8"
-
-instance MimeRender HtmlView (Html ()) where
-  mimeRender _ = renderBS
-
-instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
-  getEndpoint _ req = getEndpoint (Proxy :: Proxy api) req
-
--- | API type definition for the Servant server.
-type HealthApi = "health" :> Get '[JSON] HealthStatus
-
-type HomeRoute = Get '[HtmlView] (Html ())
-
-type LoginRoute = "login" :> Get '[HtmlView] (Html ())
-
-type PublicApi = HomeRoute :<|> LoginRoute
-
-type SessionApi =
-  "session"
-    :> "exchange"
-    :> ReqBody '[JSON] SessionExchangeRequest
-    :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
-
-type PrivateApi =
-  Protected
-    ( "me"
-        :> Get '[HtmlView] (Html ())
-    )
-
-type Api = HealthApi :<|> PublicApi :<|> SessionApi :<|> PrivateApi
-
-type ProtectedMeRoute =
-  AuthProtect "session"
-    :> "me"
-    :> Get '[HtmlView] (Html ())
-
-homeRouteProxy :: Proxy HomeRoute
-homeRouteProxy = Proxy
-
-loginRouteProxy :: Proxy LoginRoute
-loginRouteProxy = Proxy
-
-protectedMeProxy :: Proxy ProtectedMeRoute
-protectedMeProxy = Proxy
-
-homeLink :: Link
-homeLink = safeLink apiProxy homeRouteProxy
-
-loginLink :: Link
-loginLink = safeLink apiProxy loginRouteProxy
-
-protectedMeLink :: Link
-protectedMeLink = safeLink apiProxy protectedMeProxy
-
+-- | API type definitions.
 data HealthStatus = HealthStatus
   { status :: Text,
     timestamp :: UTCTime,
@@ -184,11 +95,43 @@ data SessionExchangeResponse = SessionExchangeResponse
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
+data SessionLogoutResponse = SessionLogoutResponse
+  { ok :: Bool
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
 data ErrorResponse = ErrorResponse
   { error :: ErrorBody
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
+
+-- | Top-level API definition.
+type HealthApi = "health" :> Get '[JSON] HealthStatus
+
+type FirebaseConfigApi = "firebase" :> "config" :> Get '[JSON] FirebaseClientConfig
+
+type SessionApi =
+  "session"
+    :> ( "exchange"
+          :> ReqBody '[JSON] SessionExchangeRequest
+          :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
+       :<|> "logout"
+          :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionLogoutResponse)
+       )
+
+type PrivateApi =
+  AuthProtect "session"
+    :> "me"
+    :> Get '[JSON] UserProfileResponse
+
+-- | Combined API.
+type Api = HealthApi :<|> FirebaseConfigApi :<|> SessionApi :<|> PrivateApi
+
+-- | Combined API with static assets served via Wai's Raw handler.
+type AppApi = Api :<|> Raw
+
 
 data ErrorBody = ErrorBody
   { code :: Text,
@@ -198,14 +141,82 @@ data ErrorBody = ErrorBody
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
+
+data FirebaseClientConfig = FirebaseClientConfig
+  { apiKey :: Text,
+    authDomain :: Text,
+    projectId :: Text,
+    appId :: Maybe Text,
+    messagingSenderId :: Maybe Text,
+    storageBucket :: Maybe Text,
+    measurementId :: Maybe Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
+data UserProfileResponse = UserProfileResponse
+  { firebase :: FirebaseUser,
+    allowed :: Bool
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
+instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
+  getEndpoint _ req = getEndpoint (Proxy :: Proxy api) req
+
 apiProxy :: Proxy Api
 apiProxy = Proxy
 
+appApiProxy :: Proxy AppApi
+appApiProxy = Proxy
+
 app :: AppEnv -> Application
-app env = serveWithContext apiProxy (sessionContext (sessionConfig env)) (server env)
+app env =
+  serveWithContext
+    appApiProxy
+    (sessionContext (sessionConfig env))
+    (server env :<|> staticServer env)
 
 server :: AppEnv -> Server Api
-server env = healthServer env :<|> publicServer env :<|> sessionServer env :<|> privateServer env
+server env =
+  healthServer env
+    :<|> firebaseConfigServer env
+    :<|> sessionServer env
+    :<|> privateServer env
+
+staticServer :: AppEnv -> Server Raw
+staticServer env = serveDirectoryWith (spaSettings (frontendDir env))
+
+spaSettings :: FilePath -> StaticSettings
+spaSettings rootDir =
+  let settings = defaultWebAppSettings rootDir
+   in settings {ss404Handler = Just (serveSpaIndex rootDir)}
+
+serveSpaIndex :: FilePath -> Wai.Application
+serveSpaIndex rootDir _ respondFn =
+  respondFn (responseFile status200 [(hContentType, "text/html")] (rootDir </> "index.html") Nothing)
+
+firebaseConfigServer :: AppEnv -> Server FirebaseConfigApi
+firebaseConfigServer env =
+  let FirebaseAuth
+        { firebaseProjectId = projectId,
+          firebaseApiKey = apiKey,
+          firebaseAuthDomain = authDomain,
+          firebaseAppId = appId,
+          firebaseMessagingSenderId = messagingSenderId,
+          firebaseStorageBucket = storageBucket,
+          firebaseMeasurementId = measurementId
+        } = firebaseAuth env
+   in pure
+        FirebaseClientConfig
+          { apiKey = apiKey,
+            authDomain = authDomain,
+            projectId = projectId,
+            appId = appId,
+            messagingSenderId = messagingSenderId,
+            storageBucket = storageBucket,
+            measurementId = measurementId
+          }
 
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
@@ -282,11 +293,8 @@ healthServer env = do
                 checks = HashMap.fromList [("database", databaseReport)]
               }
 
-publicServer :: AppEnv -> Server PublicApi
-publicServer env = pure (homePage env) :<|> pure (loginPage env)
-
 sessionServer :: AppEnv -> Server SessionApi
-sessionServer env = sessionExchangeHandler env
+sessionServer env = sessionExchangeHandler env :<|> sessionLogoutHandler env
 
 privateServer :: AppEnv -> Server PrivateApi
 privateServer env (SessionUser user) = meHandler env user
@@ -311,7 +319,29 @@ sessionExchangeHandler env SessionExchangeRequest {serIdToken, serReturnTo} = do
       redirectTarget = resolveReturnTo serReturnTo
   pure $ addHeader cookieHeader SessionExchangeResponse {redirect = redirectTarget}
 
-meHandler :: AppEnv -> FirebaseUser -> Handler (Html ())
+sessionLogoutHandler :: AppEnv -> Handler (Headers '[Header "Set-Cookie" Text] SessionLogoutResponse)
+sessionLogoutHandler env = do
+  now <- liftIO getCurrentTime
+  let SessionConfig {sessionCookieName} = sessionConfig env
+      expiredCookie =
+        defaultSetCookie
+          { setCookieName = sessionCookieName,
+            setCookieValue = "",
+            setCookiePath = Just "/",
+            setCookieExpires = Just (addUTCTime (-3600) now),
+            setCookieMaxAge = Just 0,
+            setCookieHttpOnly = True,
+            setCookieSecure = True,
+            setCookieSameSite = Just sameSiteLax
+          }
+      cookieHeader =
+        decodeUtf8
+          ( BL.toStrict
+              (toLazyByteString (renderSetCookie expiredCookie))
+          )
+  pure $ addHeader cookieHeader SessionLogoutResponse {ok = True}
+
+meHandler :: AppEnv -> FirebaseUser -> Handler UserProfileResponse
 meHandler env user = do
   now <- liftIO getCurrentTime
   allowed <- liftIO (authorizeLogin env user)
@@ -320,43 +350,8 @@ meHandler env user = do
       >>= maybe (throwError err500 {errBody = "failed to upsert user"}) pure
   liftIO $ recordFirebaseLogin env dbUser user allowed now
   if allowed
-    then pure (renderProfilePage (firebaseAuth env) user dbUser)
+    then pure (UserProfileResponse {firebase = user, allowed = userAllowed dbUser})
     else throwError (forbiddenLogin user)
-
-homePage :: AppEnv -> Html ()
-homePage _ =
-  layoutPage homeLink loginLink "LambdaLabs Starter" $ do
-    h1_ "Welcome to hs-starter"
-    p_ "This project template now ships with a TypeScript frontend for Firebase flows."
-    p_ $ do
-      "Once signed in, you can "
-      a_ [href_ (linkToText protectedMeLink)] "view your profile"
-      " to verify stored account details."
-
-loginPage :: AppEnv -> Html ()
-loginPage env =
-  let FirebaseAuth {firebaseProjectId, firebaseApiKey, firebaseAuthDomain} = firebaseAuth env
-      scriptBody = loginScript firebaseProjectId firebaseApiKey firebaseAuthDomain
-   in layoutPage homeLink loginLink "Sign in" $ do
-        h1_ "Connecting to Firebase"
-        p_ "Completing authentication flow with Firebase..."
-        script_ [type_ "module"] (toHtmlRaw scriptBody)
-
-layoutPage :: Link -> Link -> Text -> Html () -> Html ()
-layoutPage homeNavLink loginNavLink titleText content =
-  doctypehtml_ $
-    html_ [lang_ "en"] $ do
-      head_ $ do
-        meta_ [charset_ "utf-8"]
-        meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
-        title_ (toHtml titleText)
-        link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/water.css@2/out/water.css"]
-      body_ $ do
-        nav_ $ do
-          a_ [href_ (linkToText homeNavLink)] "Home"
-          a_ [href_ (linkToText loginNavLink)] "Sign in"
-        main_ [id_ "content"] content
-        footer_ $ p_ "Built with Servant and Lucid."
 
 upsertFirebaseUser :: AppEnv -> FirebaseUser -> Bool -> UTCTime -> IO (Maybe DbUserRow)
 upsertFirebaseUser env FirebaseUser {uid = subject, issuer = issuerValue, email = userEmail, name = displayName, picture = avatarUrl} allowed now =
@@ -411,57 +406,6 @@ attachJson :: ServerError -> ServerError
 attachJson err =
   err {errHeaders = ("Content-Type", "application/json; charset=utf-8") : filter ((/= "Content-Type") . fst) (errHeaders err)}
 
-
-renderProfilePage :: FirebaseAuth -> FirebaseUser -> DbUserRow -> Html ()
-renderProfilePage _ user dbUser =
-  layoutPage homeLink loginLink "Your profile" (profilePanel user dbUser)
-
-profilePanel :: FirebaseUser -> DbUserRow -> Html ()
-profilePanel FirebaseUser {uid = subject, issuer = issuerValue, email = emailValue, emailVerified = verified, name = displayName, picture = avatarUrl, audience = audiences, claims = customClaims} DbUserRow {userAllowed} =
-  div_ [id_ "profile-panel"] $ do
-    h2_ "Firebase profile"
-    p_ "These attributes are decoded from your verified Firebase ID token."
-    dl_ $ do
-      textDetail "UID" subject
-      textDetail "Issuer" issuerValue
-      boolDetail "Allowed" userAllowed
-      maybeTextDetail "Email" emailValue
-      maybeBoolDetail "Email verified" verified
-      maybeTextDetail "Display name" displayName
-      maybeAvatarDetail avatarUrl
-      audienceDetail audiences
-      claimsDetail customClaims
-    div_ [class_ "actions"] $
-      a_ [href_ (linkToText protectedMeLink), class_ "button-secondary"] "Refresh profile"
-
-textDetail :: Text -> Text -> Html ()
-textDetail label value = do
-  dt_ (toHtml label)
-  dd_ (toHtml value)
-
-maybeTextDetail :: Text -> Maybe Text -> Html ()
-maybeTextDetail label = maybe mempty (textDetail label)
-
-boolDetail :: Text -> Bool -> Html ()
-boolDetail label = textDetail label . boolText
-
-maybeBoolDetail :: Text -> Maybe Bool -> Html ()
-maybeBoolDetail label = maybe mempty (boolDetail label)
-
-maybeAvatarDetail :: Maybe Text -> Html ()
-maybeAvatarDetail = maybe mempty $ \url ->
-  dd_ $ img_ [src_ url, alt_ "Firebase user avatar"]
-
-audienceDetail :: [Text] -> Html ()
-audienceDetail audiences =
-  case audiences of
-    [] -> mempty
-    xs -> textDetail "Audience" (Text.intercalate ", " xs)
-
-claimsDetail :: HashMap.HashMap Text Value -> Html ()
-claimsDetail claimsMap =
-  textDetail "Custom claims" (Text.pack (show (HashMap.size claimsMap)))
-
 resolveReturnTo :: Maybe Text -> Text
 resolveReturnTo = maybe "/" sanitize
   where
@@ -472,47 +416,10 @@ resolveReturnTo = maybe "/" sanitize
             then "/"
             else target
 
-boolText :: Bool -> Text
-boolText = bool "No" "Yes"
+authorizeLogin :: AppEnv -> FirebaseUser -> IO Bool
+authorizeLogin AppEnv {firebaseAuth = FirebaseAuth {firebaseProjectId = projectId}} FirebaseUser {issuer = issuerValue} =
+  pure (issuerValue == "https://securetoken.google.com/" <> projectId)
 
-linkToText :: Link -> Text
-linkToText = Text.pack . show . linkURI
+recordFirebaseLoginEvent :: AppEnv -> DbUserRow -> FirebaseUser -> Bool -> UTCTime -> IO ()
+recordFirebaseLoginEvent = recordFirebaseLogin
 
-loginScript :: Text -> Text -> Text -> Text
-loginScript projectId apiKey authDomain =
-  let js :: Text -> Text
-      js = decodeUtf8 . BL.toStrict . Aeson.encode
-   in Text.unlines
-        [ "import { initializeApp } from \"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js\";",
-          "import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from \"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js\";",
-          "",
-          "const app = initializeApp({",
-          "  apiKey: " <> js apiKey <> ",",
-          "  authDomain: " <> js authDomain <> ",",
-          "  projectId: " <> js projectId,
-          "});",
-          "const auth = getAuth(app);",
-          "",
-          "const result = await getRedirectResult(auth).catch(() => null);",
-          "const user = result?.user || auth.currentUser;",
-          "if (!user) {",
-          "  await signInWithRedirect(auth, new GoogleAuthProvider());",
-          "} else {",
-          "  const idToken = await user.getIdToken(true);",
-          "  const params = new URLSearchParams(window.location.search);",
-          "  const returnTo = params.get(\"return_to\") || \"/\";",
-          "  const response = await fetch(\"/session/exchange\", {",
-          "    method: \"POST\",",
-          "    headers: { \"Content-Type\": \"application/json\" },",
-          "    body: JSON.stringify({ idToken, return_to: returnTo })",
-          "  });",
-          "  if (!response.ok) {",
-          "    const detail = await response.json().catch(() => ({}));",
-          "    const message = detail?.error?.message || \"Login failed\";",
-          "    throw new Error(message);",
-          "  }",
-          "  const payload = await response.json();",
-          "  window.location.replace(payload.redirect || \"/\");",
-          "}",
-          ""
-        ]
