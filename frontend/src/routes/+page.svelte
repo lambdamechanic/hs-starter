@@ -27,7 +27,12 @@
 
   async function fetchFirebaseConfig(): Promise<FirebaseClientConfig> {
     if (!configPromise) {
-      configPromise = fetch('/firebase/config', { credentials: 'same-origin' })
+      configPromise = fetch('/firebase/config', {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json'
+        }
+      })
         .then(async (response) => {
           if (!response.ok) {
             throw new Error('Failed to load Firebase configuration');
@@ -57,7 +62,12 @@
   async function fetchProfile(): Promise<void> {
     refreshingProfile = true;
     try {
-      const response = await fetch('/me', { credentials: 'same-origin' });
+      const response = await fetch('/me', {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json'
+        }
+      });
       if (response.status === 401) {
         profile = null;
         return;
@@ -89,7 +99,8 @@
       const response = await fetch('/session/exchange', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
         },
         credentials: 'same-origin',
         body: JSON.stringify({ idToken, return_to: returnTo })
@@ -116,7 +127,10 @@
       }
       const response = await fetch('/session/logout', {
         method: 'POST',
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json'
+        }
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
