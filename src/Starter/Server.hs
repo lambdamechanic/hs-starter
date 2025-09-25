@@ -10,6 +10,7 @@
 module Starter.Server
   ( app,
     apiProxy,
+    appApiProxy,
     Api,
     HealthApi,
     FirebaseConfigApi,
@@ -38,6 +39,7 @@ import Data.Time (UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
 import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
 import Servant
+import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
@@ -122,6 +124,9 @@ type PrivateApi =
 type Api = HealthApi :<|> FirebaseConfigApi :<|> SessionApi :<|> PrivateApi
 
 
+type AppApi = Api :<|> Raw
+
+
 data ErrorBody = ErrorBody
   { code :: Text,
     message :: Text,
@@ -157,11 +162,17 @@ instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
 apiProxy :: Proxy Api
 apiProxy = Proxy
 
+appApiProxy :: Proxy AppApi
+appApiProxy = Proxy
+
 app :: AppEnv -> Application
-app env = serveWithContext apiProxy (sessionContext (sessionConfig env)) (server env)
+app env = serveWithContext appApiProxy (sessionContext (sessionConfig env)) (server env :<|> staticServer env)
 
 server :: AppEnv -> Server Api
 server env = healthServer env :<|> firebaseConfigServer env :<|> sessionServer env :<|> privateServer env
+
+staticServer :: AppEnv -> Server Raw
+staticServer env = serveDirectoryWebApp (frontendDir env)
 
 firebaseConfigServer :: AppEnv -> Server FirebaseConfigApi
 firebaseConfigServer env =
