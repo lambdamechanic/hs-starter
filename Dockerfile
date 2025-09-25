@@ -3,13 +3,14 @@
 FROM ubuntu:22.04 AS build
 ARG PGROLL_VERSION=0.14.2
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update \
     && apt-get install --yes --no-install-recommends \
          curl ca-certificates xz-utils \
          build-essential pkg-config git \
          libgmp-dev libpq-dev zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/* \
- && update-ca-certificates
+    && update-ca-certificates
 
 # Install ghcup, GHC and Cabal
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
@@ -64,11 +65,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OTEL_EXPORTER_OTLP_HEADERS=
 WORKDIR ${APP_HOME}
 
-RUN apt-get update \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update \
     && apt-get install --yes --no-install-recommends \
          libgmp10 libtinfo6 libpq5 zlib1g ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
- && update-ca-certificates
+    && update-ca-certificates
 
 COPY --from=build /opt/app/bin/hs-starter /usr/local/bin/hs-starter
 COPY --from=build /opt/app/bin/pgroll /usr/local/bin/pgroll
