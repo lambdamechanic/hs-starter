@@ -18,8 +18,9 @@ import Starter.Auth.Firebase (FirebaseUser, loadFirebaseAuthFromEnv)
 import Starter.Auth.Session (loadSessionConfigFromEnv)
 import Starter.Database.Connection (loadDbConfigFromEnv)
 import Starter.Env (AppEnv (..))
+import System.Directory (doesDirectoryExist)
 import Starter.Prelude
-import Starter.Server (apiProxy, app)
+import Starter.Server (app, appApiProxy)
 import System.Environment (lookupEnv, setEnv)
 import System.IO (hFlush, stdout)
 import Text.Read (readMaybe)
@@ -37,7 +38,7 @@ runApp = do
           openTelemetryWaiMiddleware
             ( openTelemetryServantMiddleware
                 tracerProvider
-                apiProxy
+                appApiProxy
                 (app env)
             )
     logStage ("Starting Warp on port " <> show (appPort env))
@@ -49,6 +50,8 @@ loadAppEnv = do
   serviceNameEnv <- lookupEnv "OTEL_SERVICE_NAME"
   collectorEndpoint <- lookupEnv "OTEL_EXPORTER_OTLP_ENDPOINT"
   collectorHeaders <- lookupEnv "OTEL_EXPORTER_OTLP_HEADERS"
+  frontendDirEnv <- lookupEnv "FRONTEND_DIST_DIR"
+  localFrontendExists <- doesDirectoryExist "frontend/build"
   logStage "Loading database configuration"
   dbConfig <- loadDbConfigFromEnv
   logStage "Loading Firebase configuration"
@@ -70,7 +73,10 @@ loadAppEnv = do
         dbConfig,
         authorizeLogin = defaultAuthorizeLogin,
         firebaseAuth,
-        sessionConfig
+        sessionConfig,
+        frontendDir =
+          let defaultFrontend = if localFrontendExists then "frontend/build" else "/opt/app/frontend"
+           in fromMaybe defaultFrontend frontendDirEnv
       }
 
 withTracerProvider :: (TracerProvider -> IO a) -> IO a

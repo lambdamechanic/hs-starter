@@ -38,12 +38,9 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
-import Network.HTTP.Types (hContentType, status200)
-import Network.Wai (responseFile)
-import qualified Network.Wai as Wai
-import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ss404Handler)
 import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
 import Servant
+import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
@@ -53,7 +50,6 @@ import Starter.Database.Users (DbUserRow (..), insertLoginEvent, selectUserCount
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Paths_hs_starter qualified as Paths
-import System.FilePath ((</>))
 import Web.Cookie (defaultSetCookie, renderSetCookie, sameSiteLax, setCookieExpires, setCookieHttpOnly, setCookieMaxAge, setCookieName, setCookiePath, setCookieSameSite, setCookieSecure, setCookieValue)
 
 -- | API type definitions.
@@ -185,16 +181,7 @@ server env =
     :<|> privateServer env
 
 staticServer :: AppEnv -> Server Raw
-staticServer env = serveDirectoryWith (spaSettings (frontendDir env))
-
-spaSettings :: FilePath -> StaticSettings
-spaSettings rootDir =
-  let settings = defaultWebAppSettings rootDir
-   in settings {ss404Handler = Just (serveSpaIndex rootDir)}
-
-serveSpaIndex :: FilePath -> Wai.Application
-serveSpaIndex rootDir _ respondFn =
-  respondFn (responseFile status200 [(hContentType, "text/html")] (rootDir </> "index.html") Nothing)
+staticServer env = serveDirectoryWebApp (frontendDir env)
 
 firebaseConfigServer :: AppEnv -> Server FirebaseConfigApi
 firebaseConfigServer env =
@@ -419,7 +406,4 @@ resolveReturnTo = maybe "/" sanitize
 authorizeLogin :: AppEnv -> FirebaseUser -> IO Bool
 authorizeLogin AppEnv {firebaseAuth = FirebaseAuth {firebaseProjectId = projectId}} FirebaseUser {issuer = issuerValue} =
   pure (issuerValue == "https://securetoken.google.com/" <> projectId)
-
-recordFirebaseLoginEvent :: AppEnv -> DbUserRow -> FirebaseUser -> Bool -> UTCTime -> IO ()
-recordFirebaseLoginEvent = recordFirebaseLogin
 

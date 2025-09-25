@@ -45,7 +45,7 @@ npm install
 npm run dev -- --host
 ```
 
-The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; a custom `nginx.conf.sigil` serves those assets directly via Dokku before proxying API traffic to the Haskell application.
+The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; a custom `nginx.conf.sigil` serves those assets directly via Dokku before proxying API traffic to the Haskell application. When running the Haskell server locally against a production build, set `FRONTEND_DIST_DIR=frontend/build` (after `npm run build`) so the Servant `Raw` route can serve the compiled assets.
 
 ## Firebase configuration audit
 

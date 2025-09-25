@@ -17,5 +17,6 @@ data AppEnv = AppEnv
     dbConfig :: DbConfig,
     authorizeLogin :: FirebaseUser -> IO Bool,
     firebaseAuth :: FirebaseAuth,
-    sessionConfig :: SessionConfig
+    sessionConfig :: SessionConfig,
+    frontendDir :: FilePath
   }
