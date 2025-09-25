@@ -3,6 +3,7 @@
 {{ $scheme := index $port_map_list 0 }}
 {{ $listen_port := index $port_map_list 1 }}
 {{ $upstream_port := index $port_map_list 2 }}
+{{ $static_root := printf "%s/frontend" (or $.APP_ROOT (printf "%s/%s" $.DOKKU_ROOT $.APP)) }}
 
 {{ if eq $scheme "http" }}
 server {
@@ -11,7 +12,7 @@ server {
   {{ if $.NOSSL_SERVER_NAME }}server_name {{ $.NOSSL_SERVER_NAME }}; {{ end }}
   access_log  {{ $.NGINX_ACCESS_LOG_PATH }}{{ if and ($.NGINX_ACCESS_LOG_FORMAT) (ne $.NGINX_ACCESS_LOG_PATH "off") }} {{ $.NGINX_ACCESS_LOG_FORMAT }}{{ end }};
   error_log   {{ $.NGINX_ERROR_LOG_PATH }};
-  root        {{ $.APP_ROOT }}/frontend;
+  root        {{ $static_root }};
   index       index.html;
 {{ if (and (eq $listen_port "80") ($.SSL_INUSE)) }}
   include {{ $.DOKKU_ROOT }}/{{ $.APP }}/nginx.conf.d/*.conf;
@@ -78,7 +79,7 @@ server {
   {{ if $.NOSSL_SERVER_NAME }}server_name {{ $.NOSSL_SERVER_NAME }}; {{ end }}
   access_log  {{ $.NGINX_ACCESS_LOG_PATH }}{{ if and ($.NGINX_ACCESS_LOG_FORMAT) (ne $.NGINX_ACCESS_LOG_PATH "off") }} {{ $.NGINX_ACCESS_LOG_FORMAT }}{{ end }};
   error_log   {{ $.NGINX_ERROR_LOG_PATH }};
-  root        {{ $.APP_ROOT }}/frontend;
+  root        {{ $static_root }};
   index       index.html;
 
   ssl_certificate           {{ $.APP_SSL_PATH }}/server.crt;
@@ -134,7 +135,7 @@ server {
     internal;
   }
 
-  error_page 500 501 503 504 505 506 507 508 509 510 511 /500-error.html;
+  error_page 500 501 502 503 504 505 506 507 508 509 510 511 /500-error.html;
   location /500-error.html {
     root {{ $.DOKKU_LIB_ROOT }}/data/nginx-vhosts/dokku-errors;
     internal;
