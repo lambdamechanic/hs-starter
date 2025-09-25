@@ -24,12 +24,14 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import Data.Base64.Types (extractBase64)
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import Data.Bifunctor (first)
+import Data.Char (toLower)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8, decodeUtf8', encodeUtf8)
 import Data.Time (NominalDiffTime, UTCTime, addUTCTime, secondsToDiffTime)
-import Network.HTTP.Types (hCookie)
+import Network.HTTP.Types (hAccept, hCookie)
 import Network.HTTP.Types.URI (urlEncode)
 import Network.Wai (Request, rawPathInfo, rawQueryString, requestHeaders, requestMethod)
 import Servant
@@ -129,14 +131,16 @@ sessionAuthHandler :: SessionConfig -> AuthHandler Request SessionUser
 sessionAuthHandler config =
   mkAuthHandler $ \req -> do
     let cookies = maybe [] parseCookies (lookup hCookie (requestHeaders req))
-        missing = redirectToLogin config req "Missing session cookie"
-    token <- maybe (Except.throwError missing) pure (lookup (sessionCookieName config) cookies)
-    user <- either Except.throwError pure (decodeSessionCookie config token)
-    pure (SessionUser user)
+    case lookup (sessionCookieName config) cookies of
+      Nothing -> Except.throwError (redirectToLogin config req "Missing session cookie")
+      Just token ->
+        case decodeSessionCookie config req token of
+          Left err -> Except.throwError err
+          Right user -> pure (SessionUser user)
 
 -- | Parse and verify a cookie.
-decodeSessionCookie :: SessionConfig -> ByteString -> Either ServerError FirebaseUser
-decodeSessionCookie SessionConfig {sessionSecret, sessionLoginPath} raw =
+decodeSessionCookie :: SessionConfig -> Request -> ByteString -> Either ServerError FirebaseUser
+decodeSessionCookie SessionConfig {sessionSecret, sessionLoginPath} req raw =
   case BS.break (== 46) raw of -- '.'
     (payloadB64, rest)
       | BS.null payloadB64 || BS.null rest -> Left invalidSession
@@ -153,16 +157,11 @@ decodeSessionCookie SessionConfig {sessionSecret, sessionLoginPath} raw =
                     Right user -> Right user
                   else Left invalidSession
   where
-    invalidSession = redirectWithMessage "Invalid session. Please log in again."
-    redirectWithMessage msg =
-      let err = err303 {errBody = textBody msg}
-       in attachRedirect sessionLoginPath Nothing err
+    invalidSession = redirectOrJson sessionLoginPath req Nothing "INVALID_SESSION" "Invalid session. Please log in again."
 
 redirectToLogin :: SessionConfig -> Request -> Text -> ServerError
 redirectToLogin SessionConfig {sessionLoginPath} req msg =
-  attachRedirect sessionLoginPath (sanitizeReturnTo req) err
-  where
-    err = err303 {errBody = textBody msg}
+  redirectOrJson sessionLoginPath req (sanitizeReturnTo req) "LOGIN_REQUIRED" msg
 
 sanitizeReturnTo :: Request -> Maybe Text
 sanitizeReturnTo req
@@ -187,6 +186,39 @@ requireEnvNonEmpty name missingMsg emptyMsg = do
   value <- requireEnv name missingMsg
   if Text.null value then Except.throwError emptyMsg else pure value
 
+
+redirectOrJson :: Text -> Request -> Maybe Text -> Text -> Text -> ServerError
+redirectOrJson loginPath req mReturn code msg
+  | acceptsJson req = jsonError err401 code msg
+  | otherwise =
+      let err = err303 {errBody = textBody msg}
+       in attachRedirect loginPath mReturn err
+
+jsonError :: ServerError -> Text -> Text -> ServerError
+jsonError base code msg =
+  let body =
+        Aeson.encode
+          ( Aeson.object
+              [ "error"
+                  Aeson..= Aeson.object
+                    [ "code" Aeson..= code,
+                      "message" Aeson..= msg
+                    ]
+              ]
+          )
+      headers =
+        ("Content-Type", "application/json; charset=utf-8")
+          : filter ((
+ame -> name /= "Content-Type") . fst) (errHeaders base)
+   in base {errBody = body, errHeaders = headers}
+
+acceptsJson :: Request -> Bool
+acceptsJson req =
+  case lookup hAccept (requestHeaders req) of
+    Nothing -> False
+    Just header ->
+      let lowered = BC.map toLower header
+       in BC.isInfixOf "application/json" lowered
 attachRedirect :: Text -> Maybe Text -> ServerError -> ServerError
 attachRedirect loginPath mReturn err =
   let baseLocation = loginPath
