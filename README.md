@@ -45,7 +45,7 @@ npm install
 npm run dev -- --host
 ```
 
-The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; a custom `nginx.conf.sigil` serves those assets directly via Dokku before proxying API traffic to the Haskell application. When running the Haskell server locally against a production build, set `FRONTEND_DIST_DIR=frontend/build` (after `npm run build`) so the Servant `Raw` route can serve the compiled assets.
+The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; the Haskell application serves those assets directly via a Servant `Raw` route, so Dokku’s default nginx setup simply proxies everything to the Haskell process. When running the Haskell server locally against a production build, set `FRONTEND_DIST_DIR=frontend/build` (after `npm run build`) so the Servant route can find the compiled bundle without copying files into `/opt/app/frontend`.
 
 ## Firebase configuration audit
 
@@ -58,6 +58,8 @@ Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app
 - call the Identity Toolkit `accounts:createAuthUri` endpoint with a fake account to confirm the project/API key combination is valid.
 
 Successful runs end with `All Firebase checks passed.` A derived auth domain shows a `⚠` warning until you deploy Firebase Hosting—which is normal if you only use Firebase Auth. Any `✖` output indicates a real configuration issue (missing env var, invalid project, etc.) and the script prints instructions for filling in Dokku config.
+
+
 
 ## End-to-end Firebase login test
 

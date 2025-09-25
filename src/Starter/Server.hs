@@ -39,8 +39,11 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
 import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
+import Network.HTTP.Types (hContentType, status200)
+import Network.Wai (responseFile)
+import qualified Network.Wai as Wai
+import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ss404Handler)
 import Servant
-import Servant.Server.StaticFiles (serveDirectoryWebApp)
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
@@ -48,11 +51,11 @@ import Starter.Auth.Session (SessionConfig (..), SessionUser (..), mkSessionCook
 import Starter.Database.Connection (DbConfig (..), withAppConnection)
 import Starter.Database.Users (DbUserRow (..), insertLoginEvent, selectUserCount, upsertUser)
 import Starter.Env (AppEnv (..))
+import System.FilePath ((</>))
 import Starter.Prelude
 import Paths_hs_starter qualified as Paths
 import Web.Cookie (defaultSetCookie, renderSetCookie, sameSiteLax, setCookieExpires, setCookieHttpOnly, setCookieMaxAge, setCookieName, setCookiePath, setCookieSameSite, setCookieSecure, setCookieValue)
 
--- | API type definitions.
 data HealthStatus = HealthStatus
   { status :: Text,
     timestamp :: UTCTime,
@@ -125,7 +128,7 @@ type PrivateApi =
 -- | Combined API.
 type Api = HealthApi :<|> FirebaseConfigApi :<|> SessionApi :<|> PrivateApi
 
--- | Combined API with static assets served via Wai's Raw handler.
+
 type AppApi = Api :<|> Raw
 
 
@@ -139,23 +142,24 @@ data ErrorBody = ErrorBody
 
 
 data FirebaseClientConfig = FirebaseClientConfig
-  { apiKey :: Text,
-    authDomain :: Text,
-    projectId :: Text,
-    appId :: Maybe Text,
-    messagingSenderId :: Maybe Text,
-    storageBucket :: Maybe Text,
-    measurementId :: Maybe Text
+  { apiKey :: Text
+  , authDomain :: Text
+  , projectId :: Text
+  , appId :: Maybe Text
+  , messagingSenderId :: Maybe Text
+  , storageBucket :: Maybe Text
+  , measurementId :: Maybe Text
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
 data UserProfileResponse = UserProfileResponse
-  { firebase :: FirebaseUser,
-    allowed :: Bool
+  { firebase :: FirebaseUser
+  , allowed :: Bool
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
+
 
 instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
   getEndpoint _ req = getEndpoint (Proxy :: Proxy api) req
@@ -167,33 +171,26 @@ appApiProxy :: Proxy AppApi
 appApiProxy = Proxy
 
 app :: AppEnv -> Application
-app env =
-  serveWithContext
-    appApiProxy
-    (sessionContext (sessionConfig env))
-    (server env :<|> staticServer env)
+app env = serveWithContext appApiProxy (sessionContext (sessionConfig env)) (server env :<|> staticServer env)
 
 server :: AppEnv -> Server Api
-server env =
-  healthServer env
-    :<|> firebaseConfigServer env
-    :<|> sessionServer env
-    :<|> privateServer env
+server env = healthServer env :<|> firebaseConfigServer env :<|> sessionServer env :<|> privateServer env
 
 staticServer :: AppEnv -> Server Raw
-staticServer env = serveDirectoryWebApp (frontendDir env)
+staticServer env = serveDirectoryWith (spaSettings (frontendDir env))
+
+spaSettings :: FilePath -> StaticSettings
+spaSettings rootDir =
+  let settings = defaultWebAppSettings rootDir
+   in settings {ss404Handler = Just (serveSpaIndex rootDir)}
+
+serveSpaIndex :: FilePath -> Wai.Application
+serveSpaIndex rootDir _ respondFn =
+  respondFn (responseFile status200 [(hContentType, "text/html")] (rootDir </> "index.html") Nothing)
 
 firebaseConfigServer :: AppEnv -> Server FirebaseConfigApi
 firebaseConfigServer env =
-  let FirebaseAuth
-        { firebaseProjectId = projectId,
-          firebaseApiKey = apiKey,
-          firebaseAuthDomain = authDomain,
-          firebaseAppId = appId,
-          firebaseMessagingSenderId = messagingSenderId,
-          firebaseStorageBucket = storageBucket,
-          firebaseMeasurementId = measurementId
-        } = firebaseAuth env
+  let FirebaseAuth {firebaseProjectId = projectId, firebaseApiKey = apiKey, firebaseAuthDomain = authDomain, firebaseAppId = appId, firebaseMessagingSenderId = messagingSenderId, firebaseStorageBucket = storageBucket, firebaseMeasurementId = measurementId} = firebaseAuth env
    in pure
         FirebaseClientConfig
           { apiKey = apiKey,
@@ -205,8 +202,10 @@ firebaseConfigServer env =
             measurementId = measurementId
           }
 
+
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
+
   timestamp <- liftIO getCurrentTime
   let dbCfg = dbConfig env
       versionText = Text.pack (showVersion Paths.version)
@@ -402,8 +401,4 @@ resolveReturnTo = maybe "/" sanitize
        in if Text.isPrefixOf "//" target || Text.head target /= '/'
             then "/"
             else target
-
-authorizeLogin :: AppEnv -> FirebaseUser -> IO Bool
-authorizeLogin AppEnv {firebaseAuth = FirebaseAuth {firebaseProjectId = projectId}} FirebaseUser {issuer = issuerValue} =
-  pure (issuerValue == "https://securetoken.google.com/" <> projectId)
 
