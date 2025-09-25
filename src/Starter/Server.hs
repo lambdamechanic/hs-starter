@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -11,7 +12,8 @@ module Starter.Server
     apiProxy,
     Api,
     HealthApi,
-    OAuthApi,
+    PublicApi,
+    PrivateApi,
     server,
     healthServer,
     HealthStatus (..),
@@ -21,51 +23,134 @@ where
 
 import Control.Exception (SomeException, displayException, throwIO, try)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (FromJSON, ToJSON, Value, encode, object, (.=))
+import Data.Aeson (FromJSON, ToJSON, Value, encode, object, (.=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
+import qualified Data.ByteString.Lazy as BL
+import Data.Bool (bool)
 import Data.HashMap.Strict qualified as HashMap
+import Data.ByteString.Builder (toLazyByteString)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
-import Data.UUID qualified as UUID
-import Data.UUID.V4 qualified as UUID
 import Data.Version (showVersion)
+import Htmx.Lucid.Core (hxTarget_)
+import Htmx.Lucid.Head (recommendedVersion, useHtmxVersion)
+import Htmx.Servant.Lucid (hxGetSafe_)
+import Htmx.Servant.Request (HXRequest)
+import Lucid (Html, ToHtml (..), toHtmlRaw)
+import Lucid.Base (renderBS)
+import Lucid.Html5
+  ( a_,
+    alt_,
+    body_,
+    button_,
+    charset_,
+    class_,
+    content_,
+    div_,
+    dl_,
+    dd_,
+    doctypehtml_,
+    dt_,
+    footer_,
+    head_,
+    h1_,
+    h2_,
+    html_,
+    href_,
+    id_,
+    img_,
+    lang_,
+    link_,
+    rel_,
+    main_,
+    meta_,
+    name_,
+    nav_,
+    p_,
+    script_,
+    src_,
+    title_,
+    type_
+  )
+import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
 import Servant
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Database.Connection (DbConfig (..), withAppConnection)
-import Starter.Database.OAuth
+import Starter.Database.Users
   ( DbUserRow (..),
-    OAuthSessionRow (..),
-    deleteSession,
     insertLoginEvent,
-    insertSession,
-    selectSession,
     selectUserCount,
     upsertUser,
   )
+import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
+import Starter.Auth.Session (Protected, SessionUser (..), mkSessionCookie, sessionContext)
 import Starter.Env (AppEnv (..))
-import Starter.OAuth.Types
-  ( OAuthCallbackRequest (..),
-    OAuthCallbackResponse (..),
-    OAuthProfile (..),
-    OAuthStartRequest (..),
-    OAuthStartResponse (..),
-  )
 import Starter.Prelude
 import Paths_hs_starter qualified as Paths
+import Web.Cookie (renderSetCookie)
+
+-- | HTML response type rendered via lucid.
+data HtmlView
+
+instance Accept HtmlView where
+  contentType _ = "text/html; charset=utf-8"
+
+instance MimeRender HtmlView (Html ()) where
+  mimeRender _ = renderBS
+
+instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
+  getEndpoint _ req = getEndpoint (Proxy :: Proxy api) req
 
 -- | API type definition for the Servant server.
 type HealthApi = "health" :> Get '[JSON] HealthStatus
 
-type OAuthApi =
-  "oauth"
-    :> Capture "provider" Text
-    :> ( "start" :> ReqBody '[JSON] OAuthStartRequest :> Post '[JSON] OAuthStartResponse
-           :<|> "callback" :> ReqBody '[JSON] OAuthCallbackRequest :> Post '[JSON] OAuthCallbackResponse
-       )
+type HomeRoute = Get '[HtmlView] (Html ())
 
-type Api = HealthApi :<|> OAuthApi
+type LoginRoute = "login" :> Get '[HtmlView] (Html ())
+
+type PublicApi = HomeRoute :<|> LoginRoute
+
+type SessionApi =
+  "session"
+    :> "exchange"
+    :> ReqBody '[JSON] SessionExchangeRequest
+    :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
+
+type PrivateApi =
+  Protected
+    ( "me"
+        :> HXRequest
+        :> Get '[HtmlView] (Html ())
+    )
+
+type Api = HealthApi :<|> PublicApi :<|> SessionApi :<|> PrivateApi
+
+type ProtectedMeRoute =
+  AuthProtect "session"
+    :> "me"
+    :> HXRequest
+    :> Get '[HtmlView] (Html ())
+
+homeRouteProxy :: Proxy HomeRoute
+homeRouteProxy = Proxy
+
+loginRouteProxy :: Proxy LoginRoute
+loginRouteProxy = Proxy
+
+protectedMeProxy :: Proxy ProtectedMeRoute
+protectedMeProxy = Proxy
+
+homeLink :: Link
+homeLink = safeLink apiProxy homeRouteProxy
+
+loginLink :: Link
+loginLink = safeLink apiProxy loginRouteProxy
+
+protectedMeLink :: Link
+protectedMeLink = safeLink apiProxy protectedMeProxy
 
 data HealthStatus = HealthStatus
   { status :: Text,
@@ -86,6 +171,25 @@ data HealthCheckReport = HealthCheckReport
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
+data SessionExchangeRequest = SessionExchangeRequest
+  { serIdToken :: Text,
+    serReturnTo :: Maybe Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance FromJSON SessionExchangeRequest where
+  parseJSON =
+    Aeson.withObject "SessionExchangeRequest" $ \obj -> do
+      token <- obj .: "idToken"
+      returnTo <- obj .:? "return_to"
+      pure SessionExchangeRequest {serIdToken = token, serReturnTo = returnTo}
+
+data SessionExchangeResponse = SessionExchangeResponse
+  { redirect :: Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
 data ErrorResponse = ErrorResponse
   { error :: ErrorBody
   }
@@ -104,10 +208,10 @@ apiProxy :: Proxy Api
 apiProxy = Proxy
 
 app :: AppEnv -> Application
-app env = serve apiProxy (server env)
+app env = serveWithContext apiProxy (sessionContext (sessionConfig env)) (server env)
 
 server :: AppEnv -> Server Api
-server env = healthServer env :<|> oauthServer env
+server env = healthServer env :<|> publicServer env :<|> sessionServer env :<|> privateServer env
 
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
@@ -184,56 +288,99 @@ healthServer env = do
                 checks = HashMap.fromList [("database", databaseReport)]
               }
 
-oauthServer :: AppEnv -> Server OAuthApi
-oauthServer env provider =
-  startHandler env provider :<|> callbackHandler env provider
+publicServer :: AppEnv -> Server PublicApi
+publicServer env = pure (homePage env) :<|> pure (loginPage env)
 
-startHandler :: AppEnv -> Text -> OAuthStartRequest -> Handler OAuthStartResponse
-startHandler env provider OAuthStartRequest {redirectUri = redirectUriValue, scopes} = do
-  stateValue <- liftIO randomState
-  codeVerifier <- liftIO randomVerifier
-  let requestedScopes = Text.intercalate " " scopes
-  liftIO $ withAppConnection (dbConfig env) $ do
-    PQ.manipulateParams_ insertSession (stateValue, codeVerifier, provider, redirectUriValue, requestedScopes)
-  let authorizationUrl = buildAuthorizationUrl provider redirectUriValue stateValue requestedScopes
-  pure OAuthStartResponse {state = stateValue, codeVerifier, authorizationUrl}
+sessionServer :: AppEnv -> Server SessionApi
+sessionServer env = sessionExchangeHandler env
 
-callbackHandler :: AppEnv -> Text -> OAuthCallbackRequest -> Handler OAuthCallbackResponse
-callbackHandler env provider request@OAuthCallbackRequest {state = callbackState, profile = callbackProfile} = do
-  sessionRow <- liftIO (loadSession env callbackState) >>= maybe (throwError err400 {errBody = "unknown oauth state"}) pure
-  when (sessionProvider sessionRow /= provider)
-    $ throwError err400 {errBody = "provider mismatch"}
-  allowed <- liftIO (authorizeLogin env callbackProfile)
+privateServer :: AppEnv -> Server PrivateApi
+privateServer env (SessionUser user) hxRequest = meHandler env user hxRequest
+
+sessionExchangeHandler :: AppEnv -> SessionExchangeRequest -> Handler (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
+sessionExchangeHandler env SessionExchangeRequest {serIdToken, serReturnTo} = do
+  verificationResult <- liftIO (firebaseVerifyIdToken (firebaseAuth env) serIdToken)
+  firebaseUser <- either (throwError . toServerError) pure verificationResult
   now <- liftIO getCurrentTime
+  allowed <- liftIO (authorizeLogin env firebaseUser)
   dbUser <-
-    liftIO (upsertUserRecord env provider callbackProfile allowed now)
+    liftIO (upsertFirebaseUser env firebaseUser allowed now)
       >>= maybe (throwError err500 {errBody = "failed to upsert user"}) pure
-  liftIO $ recordLogin env dbUser provider request allowed now
-  liftIO $ clearSession env callbackState
-  let DbUserRow {userId = dbUserId} = dbUser
-  pure
-    OAuthCallbackResponse
-      { allowed,
-        redirectUri = sessionRedirectUri sessionRow,
-        userId = dbUserId
-      }
+  liftIO $ recordFirebaseLogin env dbUser firebaseUser allowed now
+  unless allowed $ throwError (forbiddenLogin firebaseUser)
+  let cookie = mkSessionCookie (sessionConfig env) now firebaseUser
+      cookieHeader =
+        decodeUtf8
+          ( BL.toStrict
+              (toLazyByteString (renderSetCookie cookie))
+          )
+      redirectTarget = resolveReturnTo serReturnTo
+  pure $ addHeader cookieHeader SessionExchangeResponse {redirect = redirectTarget}
 
-loadSession :: AppEnv -> Text -> IO (Maybe OAuthSessionRow)
-loadSession env stateValue =
-  withAppConnection (dbConfig env) $ do
-    result <- PQ.executeParams selectSession (PQ.Only stateValue)
-    rows <- PQ.getRows result
-    pure (listToMaybe rows)
+meHandler :: AppEnv -> FirebaseUser -> Maybe Bool -> Handler (Html ())
+meHandler env user hxRequest = do
+  now <- liftIO getCurrentTime
+  allowed <- liftIO (authorizeLogin env user)
+  dbUser <-
+    liftIO (upsertFirebaseUser env user allowed now)
+      >>= maybe (throwError err500 {errBody = "failed to upsert user"}) pure
+  liftIO $ recordFirebaseLogin env dbUser user allowed now
+  if allowed
+    then pure (renderProfilePage (firebaseAuth env) hxRequest user dbUser)
+    else throwError (forbiddenLogin user)
 
-upsertUserRecord :: AppEnv -> Text -> OAuthProfile -> Bool -> UTCTime -> IO (Maybe DbUserRow)
-upsertUserRecord env provider OAuthProfile {subject, email, displayName, avatarUrl} allowed now =
+homePage :: AppEnv -> Html ()
+homePage _ =
+  let baseButtonAttrs =
+        [ hxGetSafe_ protectedMeLink,
+          hxTarget_ "#profile-panel"
+        ]
+   in layoutPage homeLink loginLink "LambdaLabs Starter" $ do
+        h1_ "Welcome to hs-starter"
+        p_ "Use the button below to fetch your Firebase profile via HTMX."
+        div_ [class_ "actions"] $ do
+          button_ (baseButtonAttrs <> [class_ "button-primary"]) "Load your profile"
+          p_ $ do
+            "Prefer a full page? "
+            a_ [href_ (linkToText protectedMeLink)] "Open /me"
+        div_ [id_ "profile-panel"] $
+          p_ "Profile details will show up here once you are signed in."
+
+loginPage :: AppEnv -> Html ()
+loginPage env =
+  let FirebaseAuth {firebaseProjectId, firebaseApiKey, firebaseAuthDomain} = firebaseAuth env
+      scriptBody = loginScript firebaseProjectId firebaseApiKey firebaseAuthDomain
+   in layoutPage homeLink loginLink "Sign in" $ do
+        h1_ "Connecting to Firebase"
+        p_ "Completing authentication flow with Firebase..."
+        script_ [type_ "module"] (toHtmlRaw scriptBody)
+
+layoutPage :: Link -> Link -> Text -> Html () -> Html ()
+layoutPage homeNavLink loginNavLink titleText content =
+  doctypehtml_ $
+    html_ [lang_ "en"] $ do
+      head_ $ do
+        meta_ [charset_ "utf-8"]
+        meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
+        title_ (toHtml titleText)
+        useHtmxVersion recommendedVersion
+        link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/water.css@2/out/water.css"]
+      body_ $ do
+        nav_ $ do
+          a_ [href_ (linkToText homeNavLink)] "Home"
+          a_ [href_ (linkToText loginNavLink)] "Sign in"
+        main_ [id_ "content"] content
+        footer_ $ p_ "Built with Servant, HTMX, and Lucid."
+
+upsertFirebaseUser :: AppEnv -> FirebaseUser -> Bool -> UTCTime -> IO (Maybe DbUserRow)
+upsertFirebaseUser env FirebaseUser {uid = subject, issuer = issuerValue, email = userEmail, name = displayName, picture = avatarUrl} allowed now =
   withAppConnection (dbConfig env) $ do
     result <-
       PQ.manipulateParams
         upsertUser
-        ( provider,
+        ( issuerValue,
           subject,
-          email,
+          userEmail,
           displayName,
           avatarUrl,
           allowed,
@@ -243,39 +390,154 @@ upsertUserRecord env provider OAuthProfile {subject, email, displayName, avatarU
     rows <- PQ.getRows result
     pure (listToMaybe rows)
 
-recordLogin :: AppEnv -> DbUserRow -> Text -> OAuthCallbackRequest -> Bool -> UTCTime -> IO ()
-recordLogin env DbUserRow {userId = dbUserId} provider payload allowed now =
-  withAppConnection (dbConfig env) $ do
-    PQ.manipulateParams_
+recordFirebaseLogin :: AppEnv -> DbUserRow -> FirebaseUser -> Bool -> UTCTime -> IO ()
+recordFirebaseLogin env DbUserRow {userId = dbUserId} firebaseUser@FirebaseUser {issuer = issuerValue} allowed now =
+  withAppConnection (dbConfig env)
+    $ PQ.manipulateParams_
       insertLoginEvent
       ( dbUserId,
-        provider,
-        Jsonb (Aeson.toJSON payload),
+        issuerValue,
+        Jsonb (Aeson.toJSON firebaseUser),
         allowed,
         now
       )
 
-clearSession :: AppEnv -> Text -> IO ()
-clearSession env stateValue =
-  withAppConnection (dbConfig env)
-    $ PQ.manipulateParams_ deleteSession (PQ.Only stateValue)
+forbiddenLogin :: FirebaseUser -> ServerError
+forbiddenLogin FirebaseUser {uid = subject, issuer = issuerValue} =
+  attachJson err403
+    { errBody =
+        encode
+          ErrorResponse
+            { error =
+                ErrorBody
+                  { code = "LOGIN_NOT_ALLOWED",
+                    message = "User is not permitted to log in",
+                    details =
+                      object
+                        [ "uid" .= subject,
+                          "issuer" .= issuerValue
+                        ]
+                  }
+            }
+    }
 
-randomState :: IO Text
-randomState = UUID.toText <$> UUID.nextRandom
+attachJson :: ServerError -> ServerError
+attachJson err =
+  err {errHeaders = ("Content-Type", "application/json; charset=utf-8") : filter ((/= "Content-Type") . fst) (errHeaders err)}
 
-randomVerifier :: IO Text
-randomVerifier = UUID.toText <$> UUID.nextRandom
 
-buildAuthorizationUrl :: Text -> Text -> Text -> Text -> Text
-buildAuthorizationUrl provider redirectUri state scopeText =
-  "https://auth.example.com/"
-    <> provider
-    <> "?redirect_uri="
-    <> redirectUri
-    <> "&state="
-    <> state
-    <> scopesFragment
+renderProfilePage :: FirebaseAuth -> Maybe Bool -> FirebaseUser -> DbUserRow -> Html ()
+renderProfilePage _ hxHeader user dbUser =
+  let panel = profilePanel user dbUser
+   in if isHx hxHeader
+        then panel
+        else layoutPage homeLink loginLink "Your profile" panel
   where
-    scopesFragment
-      | Text.null scopeText = ""
-      | otherwise = "&scope=" <> Text.replace " " "+" scopeText
+    isHx (Just True) = True
+    isHx _ = False
+
+profilePanel :: FirebaseUser -> DbUserRow -> Html ()
+profilePanel FirebaseUser {uid = subject, issuer = issuerValue, email = emailValue, emailVerified = verified, name = displayName, picture = avatarUrl, audience = audiences, claims = customClaims} DbUserRow {userAllowed} =
+  div_ [id_ "profile-panel"] $ do
+    h2_ "Firebase profile"
+    p_ "These attributes are decoded from your verified Firebase ID token."
+    dl_ $ do
+      textDetail "UID" subject
+      textDetail "Issuer" issuerValue
+      boolDetail "Allowed" userAllowed
+      maybeTextDetail "Email" emailValue
+      maybeBoolDetail "Email verified" verified
+      maybeTextDetail "Display name" displayName
+      maybeAvatarDetail avatarUrl
+      audienceDetail audiences
+      claimsDetail customClaims
+    div_ [class_ "actions"] $
+      button_
+        [ hxGetSafe_ protectedMeLink,
+          hxTarget_ "#profile-panel",
+          class_ "button-secondary"
+        ]
+        "Refresh profile"
+
+textDetail :: Text -> Text -> Html ()
+textDetail label value = do
+  dt_ (toHtml label)
+  dd_ (toHtml value)
+
+maybeTextDetail :: Text -> Maybe Text -> Html ()
+maybeTextDetail label = maybe mempty (textDetail label)
+
+boolDetail :: Text -> Bool -> Html ()
+boolDetail label = textDetail label . boolText
+
+maybeBoolDetail :: Text -> Maybe Bool -> Html ()
+maybeBoolDetail label = maybe mempty (boolDetail label)
+
+maybeAvatarDetail :: Maybe Text -> Html ()
+maybeAvatarDetail = maybe mempty $ \url ->
+  dd_ $ img_ [src_ url, alt_ "Firebase user avatar"]
+
+audienceDetail :: [Text] -> Html ()
+audienceDetail audiences =
+  case audiences of
+    [] -> mempty
+    xs -> textDetail "Audience" (Text.intercalate ", " xs)
+
+claimsDetail :: HashMap.HashMap Text Value -> Html ()
+claimsDetail claimsMap =
+  textDetail "Custom claims" (Text.pack (show (HashMap.size claimsMap)))
+
+resolveReturnTo :: Maybe Text -> Text
+resolveReturnTo = maybe "/" sanitize
+  where
+    sanitize candidate =
+      let trimmed = Text.takeWhile (/= '#') candidate
+          target = if Text.null trimmed then "/" else trimmed
+       in if Text.isPrefixOf "//" target || Text.head target /= '/'
+            then "/"
+            else target
+
+boolText :: Bool -> Text
+boolText = bool "No" "Yes"
+
+linkToText :: Link -> Text
+linkToText = Text.pack . show . linkURI
+
+loginScript :: Text -> Text -> Text -> Text
+loginScript projectId apiKey authDomain =
+  let js :: Text -> Text
+      js = decodeUtf8 . BL.toStrict . Aeson.encode
+   in Text.unlines
+        [ "import { initializeApp } from \"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js\";",
+          "import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from \"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js\";",
+          "",
+          "const app = initializeApp({",
+          "  apiKey: " <> js apiKey <> ",",
+          "  authDomain: " <> js authDomain <> ",",
+          "  projectId: " <> js projectId,
+          "});",
+          "const auth = getAuth(app);",
+          "",
+          "const result = await getRedirectResult(auth).catch(() => null);",
+          "const user = result?.user || auth.currentUser;",
+          "if (!user) {",
+          "  await signInWithRedirect(auth, new GoogleAuthProvider());",
+          "} else {",
+          "  const idToken = await user.getIdToken(true);",
+          "  const params = new URLSearchParams(window.location.search);",
+          "  const returnTo = params.get(\"return_to\") || \"/\";",
+          "  const response = await fetch(\"/session/exchange\", {",
+          "    method: \"POST\",",
+          "    headers: { \"Content-Type\": \"application/json\" },",
+          "    body: JSON.stringify({ idToken, return_to: returnTo })",
+          "  });",
+          "  if (!response.ok) {",
+          "    const detail = await response.json().catch(() => ({}));",
+          "    const message = detail?.error?.message || \"Login failed\";",
+          "    throw new Error(message);",
+          "  }",
+          "  const payload = await response.json();",
+          "  window.location.replace(payload.redirect || \"/\");",
+          "}",
+          ""
+        ]

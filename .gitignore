@@ -12,3 +12,8 @@ cabal.project.local~
 *.swo
 .idea/
 .vscode/
+
+# Playwright artifacts
+test/playwright/node_modules/
+test/playwright/test-results/
+.env

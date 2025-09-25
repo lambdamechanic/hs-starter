@@ -19,14 +19,25 @@ import Roboservant.Types (Atom (..), Breakdown)
 import Roboservant.Types.Config (defaultConfig)
 import Squeal.PostgreSQL
 import Starter.Database.Connection (DbConfig (..))
+import Starter.Auth.Firebase (firebaseAuthDisabled)
+import Starter.Auth.Session (SessionConfig (..))
+import qualified Data.ByteString.Char8 as BC
 import Starter.Env (AppEnv (..))
-import Starter.OAuth.Types (OAuthProfile)
 import Starter.Prelude
 import Starter.Server (HealthApi, HealthStatus, healthServer)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 import System.Process (readProcessWithExitCode)
 import System.Exit (ExitCode(..))
+
+testSessionConfig :: SessionConfig
+testSessionConfig =
+  SessionConfig
+    { sessionSecret = BC.pack "test-session-secret",
+      sessionCookieName = BC.pack "hs_test_session",
+      sessionCookieMaxAge = 3600,
+      sessionLoginPath = "/login"
+    }
 
 -- | Run the Roboservant fuzzer against the health check API.
 fuzzesHealthcheck :: IO ()
@@ -61,7 +72,9 @@ fuzzesHealthcheck = do
                 otelCollectorEndpoint = Nothing,
                 otelCollectorHeaders = Nothing,
                 dbConfig = dbCfg,
-                authorizeLogin = const (pure True)
+                authorizeLogin = const (pure True),
+                firebaseAuth = firebaseAuthDisabled,
+                sessionConfig = testSessionConfig
               }
       putStrLn
         ( "tmp-postgres connection: host="

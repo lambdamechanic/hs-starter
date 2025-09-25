@@ -26,3 +26,20 @@ When both are present, `DATABASE_URL` takes precedence.
 ## Deployment
 
 Dokku executes the pgroll migrations during each deploy via `app.json`'s `scripts.dokku.predeploy` hook. Ensure the linked Postgres service exports a `DATABASE_URL`; the container image bundles the `pgroll` CLI so the hook can run `pgroll migrate db/pgroll --postgres-url "$DATABASE_URL" --schema public --pgroll-schema pgroll --complete` before web processes start.
+
+## End-to-end Firebase login test
+
+A Playwright regression in `test/playwright/tests/me.spec.js` asserts that fetching `/me` kicks off the Firebase redirect flow and issues a successful `POST` request to `googleapis.com`. Run it with the official Playwright Docker image via:
+
+```bash
+scripts/playwright.sh
+```
+
+The helper script:
+
+- pulls Firebase secrets from `dokku config hs-starter` when available;
+- starts a disposable Postgres container and launches `cabal run hs-starter` on a random local port;
+- exports `HS_STARTER_BASE_URL` for the browser session and cleans up processes/containers on exit;
+- mounts `test/playwright` into the Playwright Docker image and executes `npm ci && npx playwright test`.
+
+Provide the script with `cabal` and `docker`; it will handle the rest. You can forward additional flags to `npx playwright test` by appending them to the script invocation—for example `scripts/playwright.sh --headed`.
