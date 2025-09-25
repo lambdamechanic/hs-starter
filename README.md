@@ -27,6 +27,18 @@ When both are present, `DATABASE_URL` takes precedence.
 
 Dokku executes the pgroll migrations during each deploy via `app.json`'s `scripts.dokku.predeploy` hook. Ensure the linked Postgres service exports a `DATABASE_URL`; the container image bundles the `pgroll` CLI so the hook can run `pgroll migrate db/pgroll --postgres-url "$DATABASE_URL" --schema public --pgroll-schema pgroll --complete` before web processes start.
 
+## Frontend
+
+The single-page UI lives under `frontend/` and is built with SvelteKit + TypeScript. For local development:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host
+```
+
+The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; a custom `nginx.conf.sigil` serves those assets directly via Dokku before proxying API traffic to the Haskell application.
+
 ## End-to-end Firebase login test
 
 A Playwright regression in `test/playwright/tests/me.spec.js` asserts that fetching `/me` kicks off the Firebase redirect flow and issues a successful `POST` request to `googleapis.com`. Run it with the official Playwright Docker image via:

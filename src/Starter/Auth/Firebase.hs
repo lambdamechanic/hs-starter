@@ -72,6 +72,10 @@ data FirebaseAuthConfig = FirebaseAuthConfig
   { firebaseConfigProjectId :: Text,
     firebaseConfigApiKey :: Text,
     firebaseConfigAuthDomain :: Text,
+    firebaseConfigAppId :: Maybe Text,
+    firebaseConfigMessagingSenderId :: Maybe Text,
+    firebaseConfigStorageBucket :: Maybe Text,
+    firebaseConfigMeasurementId :: Maybe Text,
     firebaseConfigJwksUri :: Text,
     firebaseConfigAllowedSkew :: NominalDiffTime,
     firebaseConfigCacheTtl :: NominalDiffTime
@@ -83,6 +87,10 @@ data FirebaseAuth = FirebaseAuth
   { firebaseProjectId :: Text,
     firebaseApiKey :: Text,
     firebaseAuthDomain :: Text,
+    firebaseAppId :: Maybe Text,
+    firebaseMessagingSenderId :: Maybe Text,
+    firebaseStorageBucket :: Maybe Text,
+    firebaseMeasurementId :: Maybe Text,
     firebaseVerifyIdToken :: Text -> IO (Either FirebaseAuthError FirebaseUser)
   }
 
@@ -140,6 +148,10 @@ firebaseAuthDisabled =
     { firebaseProjectId = "firebase-disabled",
       firebaseApiKey = "firebase-disabled",
       firebaseAuthDomain = "firebase-disabled",
+      firebaseAppId = Nothing,
+      firebaseMessagingSenderId = Nothing,
+      firebaseStorageBucket = Nothing,
+      firebaseMeasurementId = Nothing,
       firebaseVerifyIdToken = \_ -> pure (Left (FirebaseAuthUnavailable "Firebase auth is not configured"))
     }
 
@@ -176,12 +188,20 @@ loadFirebaseAuthFromEnv = do
                       Nothing -> defaultDomain
                       Just domainText | Text.null domainText -> defaultDomain
                       Just domainText -> domainText
+              appIdEnv <- fmap Text.pack <$> lookupEnv "FIREBASE_APP_ID"
+              senderIdEnv <- fmap Text.pack <$> lookupEnv "FIREBASE_MESSAGING_SENDER_ID"
+              storageBucketEnv <- fmap Text.pack <$> lookupEnv "FIREBASE_STORAGE_BUCKET"
+              measurementIdEnv <- fmap Text.pack <$> lookupEnv "FIREBASE_MEASUREMENT_ID"
               auth <-
                 mkFirebaseAuth
                   FirebaseAuthConfig
                     { firebaseConfigProjectId = projectId,
                       firebaseConfigApiKey = apiKey,
                       firebaseConfigAuthDomain = authDomain,
+                      firebaseConfigAppId = appIdEnv,
+                      firebaseConfigMessagingSenderId = senderIdEnv,
+                      firebaseConfigStorageBucket = storageBucketEnv,
+                      firebaseConfigMeasurementId = measurementIdEnv,
                       firebaseConfigJwksUri = jwksUri,
                       firebaseConfigAllowedSkew = clockSkew,
                       firebaseConfigCacheTtl = defaultCacheTtl
@@ -205,6 +225,10 @@ mkFirebaseAuth config = do
       { firebaseProjectId = firebaseConfigProjectId config,
         firebaseApiKey = firebaseConfigApiKey config,
         firebaseAuthDomain = firebaseConfigAuthDomain config,
+        firebaseAppId = firebaseConfigAppId config,
+        firebaseMessagingSenderId = firebaseConfigMessagingSenderId config,
+        firebaseStorageBucket = firebaseConfigStorageBucket config,
+        firebaseMeasurementId = firebaseConfigMeasurementId config,
         firebaseVerifyIdToken = verifyFirebaseToken runtime
       }
   where
