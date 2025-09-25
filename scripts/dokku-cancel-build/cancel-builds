@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REMOTE_IMPL="$SCRIPT_DIR/remote/cancel-builds-core.sh"
+
+usage() {
+  cat <<'USAGE'
+Usage: cancel-builds [options] <app>
+
+Options:
+  --dry-run            Print actions without executing on the remote host
+  --host <host>        Explicit Dokku hostname (overrides DOKKU_HOST)
+  --port <port>        SSH port (default: 22 or DOKKU_PORT)
+  --user <user>        SSH user (default: dokku)
+  --ssh-option <opt>   Additional ssh option (can be supplied multiple times)
+  --local              Run cancellation logic locally (for plugin packaging/testing)
+  -h, --help           Show this help message
+USAGE
+}
+
+HOST_OVERRIDE=""
+PORT_OVERRIDE=""
+USER_OVERRIDE="dokku"
+DRY_RUN=false
+LOCAL_MODE=false
+SSH_OPTIONS=()
+APP=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --host)
+      HOST_OVERRIDE="$2"
+      shift 2
+      ;;
+    --port)
+      PORT_OVERRIDE="$2"
+      shift 2
+      ;;
+    --user)
+      USER_OVERRIDE="$2"
+      shift 2
+      ;;
+    --ssh-option)
+      SSH_OPTIONS+=("$2")
+      shift 2
+      ;;
+    --local)
+      LOCAL_MODE=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      APP="${1:-}"
+      break
+      ;;
+    -* )
+      echo "error: unknown option $1" >&2
+      usage
+      exit 1
+      ;;
+    *)
+      APP="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$APP" ]]; then
+  echo "error: app name required" >&2
+  usage
+  exit 1
+fi
+
+if [[ ! -f "$REMOTE_IMPL" ]]; then
+  echo "error: remote implementation not found at $REMOTE_IMPL" >&2
+  exit 1
+fi
+
+remote_args=()
+$DRY_RUN && remote_args+=("--dry-run")
+remote_args+=("$APP")
+
+if $LOCAL_MODE; then
+  exec "$REMOTE_IMPL" "${remote_args[@]}"
+fi
+
+resolve_host() {
+  if [[ -n "$HOST_OVERRIDE" ]]; then
+    echo "$HOST_OVERRIDE"
+    return
+  fi
+  if [[ -n "${DOKKU_HOST:-}" ]]; then
+    echo "$DOKKU_HOST"
+    return
+  fi
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if git remote get-url dokku >/dev/null 2>&1; then
+      local url
+      url=$(git remote get-url dokku)
+      url=${url#ssh://}
+      url=${url#*@}
+      url=${url%%/*}
+      echo "${url%%:*}"
+      return
+    fi
+  fi
+  echo "error: unable to determine Dokku host; set DOKKU_HOST or use --host" >&2
+  exit 1
+}
+
+resolve_port() {
+  if [[ -n "$PORT_OVERRIDE" ]]; then
+    echo "$PORT_OVERRIDE"
+    return
+  fi
+  if [[ -n "${DOKKU_PORT:-}" && "${DOKKU_PORT}" =~ ^[0-9]+$ ]]; then
+    echo "$DOKKU_PORT"
+    return
+  fi
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if git remote get-url dokku >/dev/null 2>&1; then
+      local url
+      url=$(git remote get-url dokku)
+      url=${url#ssh://}
+      url=${url#*@}
+      url=${url%%/*}
+      local port=${url##*:}
+      if [[ "$port" =~ ^[0-9]+$ ]]; then
+        echo "$port"
+        return
+      fi
+    fi
+  fi
+  echo "22"
+}
+
+HOST=$(resolve_host)
+PORT=$(resolve_port)
+USER="$USER_OVERRIDE"
+
+ssh_command=(ssh -p "$PORT")
+for opt in "${SSH_OPTIONS[@]}"; do
+  ssh_command+=("-o" "$opt")
+done
+ssh_command+=("$USER@$HOST" "--" "bash" "-s" "--")
+
+# shellcheck disable=SC2145
+"${ssh_command[@]}" "${remote_args[@]}" < "$REMOTE_IMPL"
+
