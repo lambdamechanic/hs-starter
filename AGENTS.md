@@ -25,7 +25,7 @@ cabal test --enable-coverage --enable-per-component --coverage-for="${UNIT_LIB_I
 CI uses `8c6794b6/hpc-codecov-action` to generate a Codecov JSON report and uploads it with `codecov/codecov-action`.
 
 ## Commit & Pull Request Guidelines
-Follow `type: summary` messages (examples: `feat: add oauth login route`, `chore: regenerate squeal schema`). PRs should summarise migrations applied, commands run (`cabal build`, `scripts/squealgen.sh`), and include screenshots or curl output for API changes. Cross-link tracking issues and call out any follow-ups.
+Follow `type: summary` messages (examples: `feat: add oauth login route`, `chore: regenerate squeal schema`). PRs should summarise migrations applied, commands run (`cabal build`, `scripts/squealgen.sh`), and include screenshots or curl output for API changes. Cross-link tracking issues and call out any follow-ups. You can push branches directly and open pull requests with the GitHub CLI (`gh pr create --fill --web`) once your commits are ready.
 
 ## Environment & Tooling Notes
 Install pgroll, Docker, and the upstream `squealgen` CLI (see https://github.com/mwotton/squealgen) when working migrations; `scripts/squealgen.sh` expects all three plus a local Postgres image. Export sensitive settings via environment variables—not version control. GitHub Actions re-runs Cabal builds/tests with caching, so keep dependencies tidy and regenerate schema files before pushing.

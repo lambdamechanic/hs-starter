@@ -35,6 +35,18 @@ dokku config:set hs-starter DOCKER_BUILDKIT=1
 
 With BuildKit active, the cached `apt` indexes are reused between builds and the image now provisions dependencies via the cache-aware mounts defined in the Dockerfile.
 
+## Firebase configuration audit
+
+Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app. It will:
+
+- discover the app name from your `dokku` git remote (you can still pass it explicitly: `scripts/check-firebase-config.sh <app>`).
+- fall back to `bash ~/.dokku/contrib/dokku_client.sh` if you use the stock Dokku client shim.
+- require `FIREBASE_API_KEY` and `FIREBASE_PROJECT_ID`, deriving `FIREBASE_AUTH_DOMAIN` as `<project>.firebaseapp.com` whenever you haven’t configured a custom domain.
+- curl `https://<authDomain>/__/firebase/init.json` and warn if the default firebaseapp.com host hasn’t been put on Firebase Hosting yet.
+- call the Identity Toolkit `accounts:createAuthUri` endpoint with a fake account to confirm the project/key combination is real.
+
+Successful runs end with `All Firebase checks passed.` A derived auth domain produces a `⚠` warning until you deploy Firebase Hosting—which is expected if you only use Firebase Auth. Any `✖` output indicates a real configuration issue (missing env var, invalid project, etc.) and the script prints instructions for filling in the Dokku config.
+
 ## End-to-end Firebase login test
 
 A Playwright regression in `test/playwright/tests/me.spec.js` asserts that fetching `/me` kicks off the Firebase redirect flow and issues a successful `POST` request to `googleapis.com`. Run it with the official Playwright Docker image via:
