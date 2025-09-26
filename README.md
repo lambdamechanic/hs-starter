@@ -29,13 +29,17 @@ Dokku executes the pgroll migrations during each deploy via `app.json`'s `script
 
 ## Firebase configuration audit
 
-Use `scripts/check-firebase-config.sh` to verify that Dokku has the required Firebase env vars and that the remote project responds correctly. The script defaults to the `hs-starter` app but accepts an app name override:
+Run `scripts/check-firebase-config.sh` whenever you add this template to a new Dokku app. The helper will:
 
-```bash
-scripts/check-firebase-config.sh <dokku-app>
-```
+- locate the app name automatically from your `dokku` git remote (you can still override it: `scripts/check-firebase-config.sh <app>`);
+- fall back to `bash ~/.dokku/contrib/dokku_client.sh` if you expose Dokku through the stock client shim;
+- ensure `FIREBASE_API_KEY` and `FIREBASE_PROJECT_ID` are present, deriving `FIREBASE_AUTH_DOMAIN` as `<project>.firebaseapp.com` if you have not set a custom domain;
+- probe `https://<authDomain>/__/firebase/init.json` and warn if the default firebaseapp.com host has not been put on Firebase Hosting yet;
+- call the Identity Toolkit `accounts:createAuthUri` endpoint with a fake account to confirm that the API key and project actually exist.
 
-It calls `dokku config`, probes `https://<authDomain>/__/firebase/init.json`, and issues a test request to the Identity Toolkit API to catch misconfigured API keys/projects.
+Successful output ends with `All Firebase checks passed.` A derived auth domain will show a `⚠` warning until you enable Firebase Hosting, which is expected for projects that only use Firebase Auth. Any `✖` lines indicate a real problem—typically a missing env var or an invalid project/API key.
+
+The script prints detailed instructions for populating the env vars if it cannot find them in Dokku.
 
 ## Frontend
 
