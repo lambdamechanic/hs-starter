@@ -39,6 +39,18 @@ With BuildKit active, the cached `apt` indexes are reused between builds and the
 
 Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app. It will:
 
+- discover the Dokku app name from your `dokku` git remote (override with `scripts/check-firebase-config.sh <app>` if needed).
+- fall back to `bash ~/.dokku/contrib/dokku_client.sh` when you use the stock Dokku client shim.
+- require `FIREBASE_API_KEY` and `FIREBASE_PROJECT_ID`, deriving `FIREBASE_AUTH_DOMAIN` as `<project>.firebaseapp.com` when you haven’t configured a custom domain.
+- curl `https://<authDomain>/__/firebase/init.json` and warn when the derived firebaseapp.com host isn’t served by Firebase Hosting yet.
+- call the Identity Toolkit `accounts:createAuthUri` endpoint with a fake account to confirm the project/API key combination is valid.
+
+Successful runs end with `All Firebase checks passed.` A derived auth domain shows a `⚠` warning until you deploy Firebase Hosting—which is normal if you only use Firebase Auth. Any `✖` output indicates a real configuration issue (missing env var, invalid project, etc.) and the script prints instructions for filling in Dokku config.
+
+## Firebase configuration audit
+
+Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app. It will:
+
 - discover the app name from your `dokku` git remote (you can still pass it explicitly: `scripts/check-firebase-config.sh <app>`).
 - fall back to `bash ~/.dokku/contrib/dokku_client.sh` if you use the stock Dokku client shim.
 - require `FIREBASE_API_KEY` and `FIREBASE_PROJECT_ID`, deriving `FIREBASE_AUTH_DOMAIN` as `<project>.firebaseapp.com` whenever you haven’t configured a custom domain.
