@@ -53,9 +53,22 @@ fi
 
 if [[ -z "$APP_NAME" ]]; then
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    APP_NAME=$(git remote -v | awk '/^dokku@/ {print $1}' | head -n1)
-    if [[ -n "$APP_NAME" ]]; then
-      APP_NAME=${APP_NAME##*:}
+    remote_url=$(git remote get-url dokku 2>/dev/null || true)
+    if [[ -z "$remote_url" ]]; then
+      remote_url=$(git remote -v | awk '$2 ~ /@.+:/ {print $2; exit}')
+    fi
+    if [[ -n "$remote_url" ]]; then
+      candidate=$remote_url
+      candidate=${candidate% (fetch)}
+      candidate=${candidate% (push)}
+      if [[ $candidate == *:* ]]; then
+        candidate=${candidate##*:}
+      fi
+      if [[ $candidate == */* ]]; then
+        candidate=${candidate##*/}
+      fi
+      candidate=${candidate%.git}
+      APP_NAME=$candidate
     fi
   fi
   if [[ -z "$APP_NAME" ]]; then
