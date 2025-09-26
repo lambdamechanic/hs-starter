@@ -100,7 +100,7 @@ while IFS="" read -r line; do
 done <<<"$CONFIG_OUTPUT"
 
 missing=()
-for key in FIREBASE_API_KEY FIREBASE_PROJECT_ID FIREBASE_AUTH_DOMAIN; do
+for key in FIREBASE_API_KEY FIREBASE_PROJECT_ID; do
   if [[ -z "${CONFIG[$key]:-}" ]]; then
     missing+=("$key")
   fi
@@ -128,7 +128,11 @@ fi
 
 API_KEY=${CONFIG[FIREBASE_API_KEY]}
 PROJECT_ID=${CONFIG[FIREBASE_PROJECT_ID]}
-AUTH_DOMAIN=${CONFIG[FIREBASE_AUTH_DOMAIN]}
+AUTH_DOMAIN=${CONFIG[FIREBASE_AUTH_DOMAIN]:-${PROJECT_ID}.firebaseapp.com}
+AUTH_DOMAIN_DERIVED=false
+if [[ -z ${CONFIG[FIREBASE_AUTH_DOMAIN]:-} ]]; then
+  AUTH_DOMAIN_DERIVED=true
+fi
 APP_ID=${CONFIG[FIREBASE_APP_ID]:-}
 MSG_SENDER=${CONFIG[FIREBASE_MESSAGING_SENDER_ID]:-}
 MEASUREMENT_ID=${CONFIG[FIREBASE_MEASUREMENT_ID]:-}
@@ -136,7 +140,11 @@ STORAGE_BUCKET=${CONFIG[FIREBASE_STORAGE_BUCKET]:-}
 
 printf '\n==> Firebase settings\n'
 printf '  FIREBASE_PROJECT_ID:        %s\n' "$PROJECT_ID"
-printf '  FIREBASE_AUTH_DOMAIN:       %s\n' "$AUTH_DOMAIN"
+if $AUTH_DOMAIN_DERIVED; then
+  printf '  FIREBASE_AUTH_DOMAIN:       %s (derived)\n' "$AUTH_DOMAIN"
+else
+  printf '  FIREBASE_AUTH_DOMAIN:       %s\n' "$AUTH_DOMAIN"
+fi
 [[ -n "$APP_ID" ]] && printf '  FIREBASE_APP_ID:            %s\n' "$APP_ID"
 [[ -n "$MSG_SENDER" ]] && printf '  FIREBASE_MESSAGING_SENDER_ID: %s\n' "$MSG_SENDER"
 [[ -n "$STORAGE_BUCKET" ]] && printf '  FIREBASE_STORAGE_BUCKET:    %s\n' "$STORAGE_BUCKET"
@@ -152,9 +160,14 @@ check_auth_domain() {
   if [[ "$http_code" == "200" ]]; then
     echo '  ✔ auth domain responded with 200'
   else
-    echo "  ✖ auth domain returned HTTP $http_code" >&2
-    echo '    The Firebase hosting/domain setup may be incomplete.' >&2
-    status=1
+    if $AUTH_DOMAIN_DERIVED; then
+      echo "  ⚠ auth domain returned HTTP $http_code (derived default domain)" >&2
+      echo '    Deploy Firebase Hosting if you plan to use the default firebaseapp.com host.' >&2
+    else
+      echo "  ✖ auth domain returned HTTP $http_code" >&2
+      echo '    The Firebase hosting/domain setup may be incomplete.' >&2
+      status=1
+    fi
   fi
 }
 
@@ -181,7 +194,7 @@ probe_identity_toolkit() {
     return
   fi
 
-  if "$JQ_BIN" -e '.registered | type == "boolean"' "$tmp" >/dev/null 2>&1; then
+  if "$JQ_BIN" -e 'has("registered") or has("authUri")' "$tmp" >/dev/null 2>&1; then
     echo '  ✔ identitytoolkit responded (API key appears valid)'
   else
     echo '  ⚠ identitytoolkit responded but payload was unexpected:' >&2
