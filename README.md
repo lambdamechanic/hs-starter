@@ -27,6 +27,16 @@ When both are present, `DATABASE_URL` takes precedence.
 
 Dokku executes the pgroll migrations during each deploy via `app.json`'s `scripts.dokku.predeploy` hook. Ensure the linked Postgres service exports a `DATABASE_URL`; the container image bundles the `pgroll` CLI so the hook can run `pgroll migrate db/pgroll --postgres-url "$DATABASE_URL" --schema public --pgroll-schema pgroll --complete` before web processes start.
 
+## Firebase configuration audit
+
+Use `scripts/check-firebase-config.sh` to verify that Dokku has the required Firebase env vars and that the remote project responds correctly. The script defaults to the `hs-starter` app but accepts an app name override:
+
+```bash
+scripts/check-firebase-config.sh <dokku-app>
+```
+
+It calls `dokku config`, probes `https://<authDomain>/__/firebase/init.json`, and issues a test request to the Identity Toolkit API to catch misconfigured API keys/projects.
+
 ## Frontend
 
 The single-page UI lives under `frontend/` and is built with SvelteKit + TypeScript. For local development:
