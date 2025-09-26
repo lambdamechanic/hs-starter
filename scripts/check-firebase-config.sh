@@ -51,14 +51,22 @@ if ! resolve_dokku; then
   exit 1
 fi
 
-if ! command -v "$JQ_BIN" >/dev/null 2>&1; then
-  echo "error: jq is required (set JQ_BIN or install jq)" >&2
-  exit 1
+if [[ -z "$APP_NAME" ]]; then
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    APP_NAME=$(git remote -v | awk '/^dokku@/ {print $1}' | head -n1)
+    if [[ -n "$APP_NAME" ]]; then
+      APP_NAME=${APP_NAME##*:}
+    fi
+  fi
+  if [[ -z "$APP_NAME" ]]; then
+    echo "error: unable to determine Dokku app; pass it explicitly" >&2
+    usage
+    exit 1
+  fi
 fi
 
-if [[ -z "$APP_NAME" ]]; then
-  echo "error: Dokku app name is required" >&2
-  usage
+if ! command -v "$JQ_BIN" >/dev/null 2>&1; then
+  echo "error: jq is required (set JQ_BIN or install jq)" >&2
   exit 1
 fi
 
