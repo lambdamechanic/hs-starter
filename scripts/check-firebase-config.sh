@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME=${1:-${DOKKU_APP:-hs-starter}}
+APP_NAME=${1:-}
 DOKKU_BIN=${DOKKU_BIN:-dokku}
 JQ_BIN=${JQ_BIN:-jq}
 
@@ -30,13 +30,12 @@ resolve_dokku() {
 
 usage() {
   cat <<USAGE
-Usage: $(basename "$0") [dokku-app]
+Usage: $(basename "$0") <dokku-app>
 
 Checks that the Dokku config for the given app contains the required Firebase
 settings and runs a couple of remote probes against the Firebase project.
 
 Environment variables recognised:
-  DOKKU_APP   default Dokku app name (overridden by positional argument)
   DOKKU_BIN   dokku CLI path (default: dokku)
   JQ_BIN      jq binary (default: jq)
 USAGE
@@ -58,7 +57,7 @@ if ! command -v "$JQ_BIN" >/dev/null 2>&1; then
 fi
 
 if [[ -z "$APP_NAME" ]]; then
-  echo "error: no Dokku app specified" >&2
+  echo "error: Dokku app name is required" >&2
   usage
   exit 1
 fi
