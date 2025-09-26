@@ -46,8 +46,12 @@ jobs:
             cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
             cabal-${{ runner.os }}-
 
-      - name: Update package index
-        run: cabal update
+      - name: Install tooling
+        run: |
+          sudo apt-get install --yes python3-yaml
+          cabal update
+          cabal install hpack --installdir "$HOME/.local/bin" --overwrite-policy=always
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build
         run: cabal build all
@@ -74,6 +78,9 @@ jobs:
             echo "cabal does not support --coverage-for; using legacy coverage flags"
             cabal test --enable-coverage --enable-per-component --test-show-details=streaming
           fi
+
+      - name: Integration test add_as_http_layer
+        run: scripts/test_add_http_layer.sh
 
       - name: Generate coverage report (Codecov JSON)
         uses: 8c6794b6/hpc-codecov-action@v4
