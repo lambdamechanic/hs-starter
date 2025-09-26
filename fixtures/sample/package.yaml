@@ -1,0 +1,30 @@
+name: sample-app
+version: 0.0.1
+language: GHC2021
+dependencies:
+- base >=4.19 && <4.20
+ghc-options:
+- -Wall
+default-extensions:
+- NoImplicitPrelude
+- OverloadedStrings
+library:
+  source-dirs: src
+  exposed-modules:
+  - Sample
+tests:
+  sample-tests:
+    main: Main.hs
+    source-dirs: test
+    dependencies:
+    - sample-app
+    - base
+    - tasty
+    - tasty-hunit
+executables:
+  sample-app:
+    main: Main.hs
+    source-dirs: app
+    dependencies:
+    - sample-app
+    - base
