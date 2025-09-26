@@ -5,6 +5,29 @@ APP_NAME=${1:-${DOKKU_APP:-hs-starter}}
 DOKKU_BIN=${DOKKU_BIN:-dokku}
 JQ_BIN=${JQ_BIN:-jq}
 
+resolve_dokku() {
+  local candidate="${DOKKU_BIN:-dokku}"
+  local -a cmd
+  read -r -a cmd <<<"$candidate"
+
+  if [[ ${#cmd[@]} -gt 0 && ${cmd[0]} == */* && -x ${cmd[0]} ]]; then
+    DOKKU_CMD=("${cmd[@]}")
+    return 0
+  fi
+
+  if command -v "${cmd[0]}" >/dev/null 2>&1; then
+    DOKKU_CMD=("${cmd[@]}")
+    return 0
+  fi
+
+  if [[ -x "$HOME/.dokku/contrib/dokku_client.sh" ]]; then
+    DOKKU_CMD=(bash "$HOME/.dokku/contrib/dokku_client.sh")
+    return 0
+  fi
+
+  return 1
+}
+
 usage() {
   cat <<USAGE
 Usage: $(basename "$0") [dokku-app]
@@ -24,8 +47,8 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   exit 0
 fi
 
-if ! command -v "$DOKKU_BIN" >/dev/null 2>&1; then
-  echo "error: dokku CLI not found (set DOKKU_BIN)" >&2
+if ! resolve_dokku; then
+  echo "error: dokku CLI not found (set DOKKU_BIN or install dokku_client.sh)" >&2
   exit 1
 fi
 
@@ -41,7 +64,7 @@ if [[ -z "$APP_NAME" ]]; then
 fi
 
 printf '==> Inspecting Dokku config for app %s\n' "$APP_NAME" >&2
-CONFIG_OUTPUT=$($DOKKU_BIN config "$APP_NAME" 2>/dev/null || true)
+CONFIG_OUTPUT=$("${DOKKU_CMD[@]}" config "$APP_NAME" 2>/dev/null || true)
 if [[ -z "$CONFIG_OUTPUT" ]]; then
   echo "error: failed to read dokku config (does app '$APP_NAME' exist?)" >&2
   exit 1
