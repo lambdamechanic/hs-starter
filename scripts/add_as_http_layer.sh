@@ -18,6 +18,14 @@ if [[ ! -f "$SOURCE_PACKAGE" ]]; then
   exit 1
 fi
 
+if ! python3 - <<'PY' >/dev/null 2>&1
+import yaml
+PY
+then
+  echo "error: python3-yaml is required" >&2
+  exit 1
+fi
+
 if [[ ! -d "$TARGET_INPUT" ]]; then
   echo "error: target folder '$TARGET_INPUT' does not exist" >&2
   exit 1
@@ -30,10 +38,18 @@ if [[ ! -f "$TARGET_PACKAGE" ]]; then
   exit 1
 fi
 
+PACKAGE_NAME=$(python3 - "$TARGET_PACKAGE" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    data = yaml.safe_load(f)
+print(data.get("name", "app"))
+PY
+)
+PACKAGE_MODULE=${PACKAGE_NAME//-/_}
 PREFIX_PATH=${PREFIX//./\/}
 
 abs_path() {
-  python - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import os, sys
 print(os.path.realpath(sys.argv[1]))
 PY
@@ -72,8 +88,7 @@ copy_file() {
   esac
 
   local dest="$TARGET/$dest_rel"
-  local dest_dir="$(dirname "$dest")"
-  mkdir -p "$dest_dir"
+  mkdir -p "$(dirname "$dest")"
 
   if [[ -e "$dest" ]]; then
     local src_real=$(abs_path "$src")
@@ -85,10 +100,10 @@ copy_file() {
   fi
 
   cp "$src" "$dest"
-  perl -0pi -e 's/\bStarter\./'"$PREFIX"'./g' "$dest"
+  perl -0pi -e 's/\bStarter\./'"$PREFIX"'./g; s/Paths_hs_starter/Paths_'"$PACKAGE_MODULE"'/g' "$dest"
 }
 
-export TEMPLATE_ROOT TARGET PREFIX PREFIX_PATH
+export TEMPLATE_ROOT TARGET PREFIX PREFIX_PATH PACKAGE_MODULE
 export -f copy_file abs_path
 
 find "$TEMPLATE_ROOT" \
@@ -118,7 +133,38 @@ if [[ -d "$TEMPLATE_ROOT/.github/workflows" ]]; then
   done
 fi
 
-python - "$SOURCE_PACKAGE" "$TARGET_PACKAGE" "$PREFIX" <<'PYEMBED'
+cabal_local_update() {
+  local cabal_local="$TARGET/cabal.project.local"
+  local block=$(cat <<'EOS'
+allow-newer: records-sop:ghc-prim, records-sop:deepseq
+
+source-repository-package
+  type: git
+  location: https://github.com/jfischoff/tmp-postgres.git
+  tag: 7f2467a6d6d5f6db7eed59919a6773fe006cf22b
+
+source-repository-package
+  type: git
+  location: https://github.com/mwotton/roboservant.git
+  tag: f06d8ac99ce13a55c4f35e98065963ce08634806
+
+source-repository-package
+  type: git
+  location: https://github.com/cachix/hs-opentelemetry-instrumentation-servant.git
+  tag: e29af39edfce5434c985223cfd5a0a4b24440b4e
+EOS
+)
+  if [[ ! -f "$cabal_local" ]]; then
+    printf '%s\n' "$block" > "$cabal_local"
+  elif ! grep -q 'records-sop:ghc-prim' "$cabal_local"; then
+    [[ -s "$cabal_local" ]] && printf '\n' >> "$cabal_local"
+    printf '%s\n' "$block" >> "$cabal_local"
+  fi
+}
+
+cabal_local_update
+
+python3 - "$SOURCE_PACKAGE" "$TARGET_PACKAGE" "$PREFIX" <<'PYEMBED'
 import sys
 from pathlib import Path
 import yaml
@@ -132,14 +178,24 @@ target_data = yaml.safe_load(target_pkg.read_text())
 if target_data is None:
     target_data = {}
 
-source_deps = source_data.get('dependencies', [])
-target_deps = list(target_data.get('dependencies', []) or [])
-for dep in source_deps:
-    if dep not in target_deps:
-        target_deps.append(dep)
-target_data['dependencies'] = target_deps
+
+def merge_list(key, source, target):
+    src_list = source.get(key, []) or []
+    tgt_list = list(target.get(key, []) or [])
+    for item in src_list:
+        if item not in tgt_list:
+            tgt_list.append(item)
+    if tgt_list:
+        target[key] = tgt_list
+
+merge_list('dependencies', source_data, target_data)
+merge_list('default-extensions', source_data, target_data)
+merge_list('ghc-options', source_data, target_data)
+if 'language' in source_data and 'language' not in target_data:
+    target_data['language'] = source_data['language']
 
 pkg_name = target_data.get('name', 'app')
+
 
 def ensure_web_exe(data):
     executables = data.setdefault('executables', {})
@@ -150,6 +206,7 @@ def ensure_web_exe(data):
         'ghc-options': ['-threaded', '-rtsopts', '-with-rtsopts=-N'],
         'dependencies': [pkg_name]
     })
+
 
 def ensure_web_tests(data):
     source_tests = source_data.get('tests', {}).get('hs-starter-tests', {})
@@ -164,7 +221,7 @@ def ensure_web_tests(data):
     tests.setdefault('web-tests', {
         'main': 'Spec.hs',
         'source-dirs': 'test',
-        'generated-other-modules': [f"Paths_{pkg_name.replace('-', '_')}"],
+        'generated-other-modules': [f"Paths_{pkg_name.replace('-', '_') }"],
         'dependencies': deps
     })
 

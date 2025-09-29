@@ -3,11 +3,54 @@ version: 0.0.1
 language: GHC2021
 dependencies:
 - base >=4.19 && <4.20
+- base >=4.19.2.0
+- aeson >=2.2 && <2.3
+- bytestring >=0.11 && <0.13
+- containers >=0.6 && <0.7
+- postgresql-simple-url >=0.2 && <0.3
+- postgresql-simple >=0.7 && <0.8
+- hashable >=1.4 && <1.5
+- htmx >=0.1 && <0.2
+- htmx-lucid >=0.2 && <0.3
+- htmx-servant >=0.2 && <0.3
+- base64 >=0.4 && <0.6
+- cookie >=0.5 && <0.6
+- generics-sop >=0.5 && <0.6
+- http-client >=0.7 && <0.8
+- http-client-tls >=0.3 && <0.4
+- http-types >=0.12 && <0.13
+- network-uri >=2.6 && <2.7
+- cryptonite >=0.30 && <0.31
+- memory >=0.17 && <0.19
+- lucid2 >=0.0.20221012 && <0.1
+- hs-opentelemetry-instrumentation-servant >=0.2 && <0.3
+- hs-opentelemetry-instrumentation-wai >=0.1 && <0.2
+- hs-opentelemetry-sdk >=0.1 && <0.2
+- jose >=0.11 && <0.12
+- mtl >=2.3 && <2.4
+- time >=1.12 && <1.15
+- servant-server >=0.20 && <0.21
+- servant >=0.20 && <0.21
+- squeal-postgresql >=0.9.2 && <0.10
+- lens >=5.2 && <5.3
+- text >=2.0 && <2.2
+- unliftio >=0.2 && <0.3
+- uuid >=1.3 && <1.4
+- wai >=3.2 && <3.3
+- warp >=3.4 && <3.5
+- unordered-containers >=0.2 && <0.3
 ghc-options:
 - -Wall
+- -Wcompat
+- -Wincomplete-uni-patterns
+- -Wincomplete-record-updates
 default-extensions:
 - NoImplicitPrelude
 - OverloadedStrings
+- DerivingStrategies
+- DeriveAnyClass
+- DataKinds
+- TypeOperators
 library:
   source-dirs: src
   exposed-modules:
@@ -21,6 +64,27 @@ tests:
     - base
     - tasty
     - tasty-hunit
+  web-tests:
+    main: Spec.hs
+    source-dirs: test
+    generated-other-modules:
+    - Paths_sample_app
+    dependencies:
+    - sample-app
+    - falsify >=0.2 && <0.3
+    - roboservant >=0.1.0.4
+    - tmp-postgres >=1.35 && <1.36
+    - squeal-postgresql >=0.9.2 && <0.10
+    - lens >=5.2 && <5.3
+    - tasty ^>=1.5
+    - tasty-hunit ^>=0.10
+    - http-types >=0.12 && <0.13
+    - wai >=3.2 && <3.3
+    - wai-extra >=3.1 && <3.2
+    - bytestring >=0.11 && <0.13
+    - text >=2.0 && <2.2
+    - process >=1.6 && <1.7
+    - unordered-containers >=0.2 && <0.3
 executables:
   sample-app:
     main: Main.hs
@@ -28,3 +92,13 @@ executables:
     dependencies:
     - sample-app
     - base
+  web:
+    main: Main.hs
+    source-dirs: app
+    other-modules: []
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - sample-app
