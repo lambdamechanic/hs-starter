@@ -12,6 +12,7 @@ TARGET_INPUT=$2
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TEMPLATE_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 SOURCE_PACKAGE="$TEMPLATE_ROOT/package.yaml"
+CABAL_LOCAL_TEMPLATE="$SCRIPT_DIR/templates/cabal.project.local"
 
 if [[ ! -f "$SOURCE_PACKAGE" ]]; then
   echo "error: package.yaml not found in template at $SOURCE_PACKAGE" >&2
@@ -135,30 +136,16 @@ fi
 
 cabal_local_update() {
   local cabal_local="$TARGET/cabal.project.local"
-  local block=$(cat <<'EOS'
-allow-newer: records-sop:ghc-prim, records-sop:deepseq
-
-source-repository-package
-  type: git
-  location: https://github.com/jfischoff/tmp-postgres.git
-  tag: 7f2467a6d6d5f6db7eed59919a6773fe006cf22b
-
-source-repository-package
-  type: git
-  location: https://github.com/mwotton/roboservant.git
-  tag: f06d8ac99ce13a55c4f35e98065963ce08634806
-
-source-repository-package
-  type: git
-  location: https://github.com/cachix/hs-opentelemetry-instrumentation-servant.git
-  tag: e29af39edfce5434c985223cfd5a0a4b24440b4e
-EOS
-)
+  local template="$CABAL_LOCAL_TEMPLATE"
+  if [[ ! -f "$template" ]]; then
+    echo "error: cabal.project.local template missing at $template" >&2
+    exit 1
+  fi
   if [[ ! -f "$cabal_local" ]]; then
-    printf '%s\n' "$block" > "$cabal_local"
+    cp "$template" "$cabal_local"
   elif ! grep -q 'records-sop:ghc-prim' "$cabal_local"; then
     [[ -s "$cabal_local" ]] && printf '\n' >> "$cabal_local"
-    printf '%s\n' "$block" >> "$cabal_local"
+    cat "$template" >> "$cabal_local"
   fi
 }
 
