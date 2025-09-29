@@ -49,6 +49,8 @@ jobs:
       - name: Install tooling
         run: |
           sudo apt-get install --yes python3-yaml
+          python3 -m pip install --user --upgrade pip
+          python3 -m pip install --user PyYAML
           cabal update
           cabal install hpack --installdir "$HOME/.local/bin" --overwrite-policy=always
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
