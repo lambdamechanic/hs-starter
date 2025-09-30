@@ -28,6 +28,7 @@ import Data.Aeson qualified as Aeson
 import qualified Data.ByteString.Lazy as BL
 import Data.Bool (bool)
 import Data.HashMap.Strict qualified as HashMap
+import Data.Hashable (Hashable)
 import Data.ByteString.Builder (toLazyByteString)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as Text
@@ -160,7 +161,7 @@ data HealthStatus = HealthStatus
     checks :: HashMap.HashMap Text HealthCheckReport
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)
+  deriving anyclass (ToJSON, FromJSON, Hashable)
 
 data HealthCheckReport = HealthCheckReport
   { status :: Text,
@@ -169,7 +170,7 @@ data HealthCheckReport = HealthCheckReport
     details :: Value
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON)
+  deriving anyclass (ToJSON, FromJSON, Hashable)
 
 data SessionExchangeRequest = SessionExchangeRequest
   { serIdToken :: Text,

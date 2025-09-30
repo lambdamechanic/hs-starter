@@ -5,6 +5,8 @@ dist-newstyle/
 
 # Cabal helper files
 cabal.project.local
+!fixtures/sample/cabal.project.local
+!scripts/templates/cabal.project.local
 cabal.project.local~
 
 # Editor and tooling
