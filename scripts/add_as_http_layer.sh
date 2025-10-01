@@ -83,6 +83,9 @@ copy_file() {
     app/Starter/*)
       dest_rel="app/${PREFIX_PATH}/${rel#app/Starter/}"
       ;;
+    app/Main.hs)
+      dest_rel="app/web/Main.hs"
+      ;;
     *)
       return
       ;;
@@ -166,54 +169,172 @@ if target_data is None:
     target_data = {}
 
 
+def coerce_to_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    return [value]
+
+
 def merge_list(key, source, target):
-    src_list = source.get(key, []) or []
-    tgt_list = list(target.get(key, []) or [])
+    src_list = coerce_to_list(source.get(key))
+    tgt_list = coerce_to_list(target.get(key))
     for item in src_list:
         if item not in tgt_list:
             tgt_list.append(item)
     if tgt_list:
         target[key] = tgt_list
 
+
 merge_list('dependencies', source_data, target_data)
-merge_list('default-extensions', source_data, target_data)
-merge_list('ghc-options', source_data, target_data)
 if 'language' in source_data and 'language' not in target_data:
     target_data['language'] = source_data['language']
 
 pkg_name = target_data.get('name', 'app')
+pkg_module = pkg_name.replace('-', '_')
+source_tests = source_data.get('tests', {}).get('hs-starter-tests', {}) or {}
+source_pkg_name = source_data.get('name')
+source_paths_module = f"Paths_{source_pkg_name.replace('-', '_')}" if source_pkg_name else None
+source_test_deps = [dep for dep in coerce_to_list(source_tests.get('dependencies')) if dep != source_pkg_name]
+source_test_generated = [mod for mod in coerce_to_list(source_tests.get('generated-other-modules')) if mod != source_paths_module]
+sanitary_tests = dict(source_tests)
+sanitary_tests['dependencies'] = source_test_deps
+if source_test_generated:
+    sanitary_tests['generated-other-modules'] = source_test_generated
+else:
+    sanitary_tests.pop('generated-other-modules', None)
 
 
 def ensure_web_exe(data):
     executables = data.setdefault('executables', {})
-    executables.setdefault('web', {
+    web_exe = executables.setdefault('web', {
         'main': 'Main.hs',
-        'source-dirs': 'app',
+        'source-dirs': 'app/web',
         'other-modules': [],
         'ghc-options': ['-threaded', '-rtsopts', '-with-rtsopts=-N'],
         'dependencies': [pkg_name]
     })
+    web_exe['source-dirs'] = 'app/web'
 
 
 def ensure_web_tests(data):
-    source_tests = source_data.get('tests', {}).get('hs-starter-tests', {})
-    source_test_deps = source_tests.get('dependencies', [])
-    deps = [pkg_name]
-    for dep in source_test_deps:
-        if dep == source_data.get('name'):
-            continue
-        if dep not in deps:
-            deps.append(dep)
     tests = data.setdefault('tests', {})
-    tests.setdefault('web-tests', {
+    web_suite = tests.setdefault('web-tests', {
         'main': 'Spec.hs',
         'source-dirs': 'test',
-        'generated-other-modules': [f"Paths_{pkg_name.replace('-', '_') }"],
-        'dependencies': deps
+        'generated-other-modules': [f"Paths_{pkg_module}"],
+        'dependencies': [pkg_name]
     })
+    merge_list('dependencies', sanitary_tests, web_suite)
+    merge_list('generated-other-modules', sanitary_tests, web_suite)
+    deps = coerce_to_list(web_suite.get('dependencies'))
+    for dep in collect_component_values(data, 'dependencies', 'hspec', skip={'web-tests'}):
+        if dep not in deps:
+            deps.append(dep)
+    for dep in collect_all_component_dependencies(data, skip={'web-tests'}):
+        if dep not in deps and dep != pkg_name:
+            deps.append(dep)
+    web_suite['dependencies'] = deps
+    extra_tools = collect_component_values(data, 'build-tools', 'hspec-discover', skip={'web-tests'})
+    if extra_tools:
+        tools = coerce_to_list(web_suite.get('build-tools'))
+        for tool in extra_tools:
+            if tool not in tools:
+                tools.append(tool)
+        web_suite['build-tools'] = tools
+
+
+def replace_module_prefix(module_name: str) -> str:
+    if module_name.startswith('Starter.'):
+        return module_name.replace('Starter', prefix, 1)
+    return module_name
+
+
+def collect_all_component_dependencies(data, skip=None):
+    results = []
+    skip = set(skip or ())
+    for section_key in ('tests', 'internal-libraries'):
+        components = (data.get(section_key, {}) or {})
+        for name, component in components.items():
+            if name in skip:
+                continue
+            for value in coerce_to_list(component.get('dependencies')):
+                if isinstance(value, str):
+                    results.append(value)
+    return results
+
+
+def collect_component_values(data, key, prefix, skip=None):
+    results = []
+    skip = set(skip or ())
+    for section_key in ('tests', 'internal-libraries'):
+        components = (data.get(section_key, {}) or {})
+        for name, component in components.items():
+            if name in skip:
+                continue
+            values = coerce_to_list(component.get(key))
+            for value in values:
+                if isinstance(value, str) and value.startswith(prefix):
+                    results.append(value)
+    return results
+
+
+def ensure_library_modules(data):
+    library = data.setdefault('library', {})
+    source_library = source_data.get('library', {})
+    for key in ('exposed-modules', 'other-modules'):
+        desired = [replace_module_prefix(m) for m in coerce_to_list(source_library.get(key))]
+        if not desired:
+            continue
+        existing = coerce_to_list(library.get(key))
+        for mod in desired:
+            if mod not in existing:
+                existing.append(mod)
+        if existing:
+            library[key] = existing
+    generated = coerce_to_list(library.get('generated-other-modules'))
+    paths_module = f'Paths_{pkg_module}'
+    if paths_module not in generated:
+        generated.append(paths_module)
+    library['generated-other-modules'] = generated
+
+
+def ensure_default_extensions(data):
+    required = ['DerivingStrategies', 'OverloadedStrings']
+    exts = coerce_to_list(data.get('default-extensions'))
+    changed = False
+    for ext in required:
+        if ext not in exts:
+            exts.append(ext)
+            changed = True
+    if changed:
+        data['default-extensions'] = exts
+
+
+def ensure_internal_test_dependencies(data):
+    internal_libs = data.get('internal-libraries', {}) or {}
+    if not internal_libs:
+        return
+    extras = [dep for dep in source_test_deps if dep != pkg_name]
+    if not extras:
+        return
+    for lib in internal_libs.values():
+        deps = coerce_to_list(lib.get('dependencies'))
+        updated = False
+        for dep in extras:
+            if dep not in deps:
+                deps.append(dep)
+                updated = True
+        if updated:
+            lib['dependencies'] = deps
+
 
 ensure_web_exe(target_data)
 ensure_web_tests(target_data)
+ensure_library_modules(target_data)
+ensure_internal_test_dependencies(target_data)
+ensure_default_extensions(target_data)
 
 with target_pkg.open('w') as f:
     yaml.safe_dump(target_data, f, sort_keys=False)
