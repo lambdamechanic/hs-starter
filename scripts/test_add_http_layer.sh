@@ -6,6 +6,7 @@ SCRIPT_DIR="$REPO_ROOT/scripts"
 TEMPLATE_ROOT="$REPO_ROOT"
 FIXTURE_DIR="$REPO_ROOT/fixtures/sample"
 WORK_DIR=$(mktemp -d)
+PROJECT_NAME="sample-app"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 # Keep cabal artefacts contained inside the temporary work tree so test runs
@@ -33,13 +34,23 @@ fi
 
 cabal build all --builddir="$WORK_DIR/dist" >/dev/null
 
-"$SCRIPT_DIR/add_as_http_layer.sh" Sample.Web "$WORK_DIR"
+"$SCRIPT_DIR/add_as_http_layer.sh" Sample.Web "$PROJECT_NAME" "$WORK_DIR"
 
 if command -v hpack >/dev/null 2>&1; then
   hpack --force >/dev/null
 fi
 
 cabal build all --builddir="$WORK_DIR/dist" >/dev/null
+
+if rg -iw 'starter' \
+    --glob '!**/dist/**' \
+    --glob '!**/dist-*/**' \
+    --glob '!.git' \
+    "$WORK_DIR" >/dev/null; then
+  echo "error: generated project still contains references to 'starter'" >&2
+  rg -iw 'starter' --glob '!**/dist/**' --glob '!**/dist-*/**' --glob '!.git' "$WORK_DIR"
+  exit 1
+fi
 
 popd >/dev/null
 
