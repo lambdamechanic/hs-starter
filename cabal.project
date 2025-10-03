@@ -6,7 +6,7 @@ tests: True
 
 write-ghc-environment-files: never
 
-allow-newer: records-sop:ghc-prim, records-sop:deepseq
+allow-newer: records-sop:ghc-prim, records-sop:deepseq, minithesis:random
 
 source-repository-package
   type: git
@@ -22,3 +22,11 @@ source-repository-package
   type: git
   location: https://github.com/cachix/hs-opentelemetry-instrumentation-servant.git
   tag: e29af39edfce5434c985223cfd5a0a4b24440b4e
+
+source-repository-package
+  type: git
+  location: https://github.com/lambdamechanic/minithesis-hs.git
+  tag: 1fc7854b45d1b1c01aab333621060ce223f8757b
+
+package minithesis
+  tests: False
