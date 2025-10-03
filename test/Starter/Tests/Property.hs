@@ -1,26 +1,39 @@
 module Starter.Tests.Property
-  ( tests,
+  ( spec,
   )
 where
 
+import Control.Exception (Exception, throwIO)
+import Minithesis qualified as Minithesis
+import Minithesis.Property qualified as MP
 import Starter.Prelude
-import Test.Falsify.Generator qualified as Gen
-import Test.Falsify.Range qualified as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Falsify (Property, gen, testFailed, testProperty)
+import Test.Syd
 
 -- | Property: addition is commutative for Int32.
-tests :: TestTree
-tests =
-  testGroup
-    "Property"
-    [ testProperty "addition commutative" additionCommutative
-    ]
+spec :: Spec
+spec =
+  describe "Property" $ do
+    it "addition commutative" $
+      runMinithesis additionCommutative
 
-additionCommutative :: Property ()
-additionCommutative = do
-  x <- gen (Gen.inRange (Range.withOrigin (-10_000, 10_000) (0 :: Int32)))
-  y <- gen (Gen.inRange (Range.withOrigin (-10_000, 10_000) (0 :: Int32)))
-  unless (x + y == y + x) $ do
-    let detail = "addition failed for: " <> show (x, y)
-    testFailed detail
+newtype AdditionFailure = AdditionFailure (Int32, Int32)
+  deriving (Show)
+
+instance Exception AdditionFailure
+
+additionCommutative :: MP.Property
+additionCommutative =
+  MP.withTests 200 $
+    \tc -> do
+      xVal <- Minithesis.any tc (Minithesis.integers (-10000) 10000)
+      yVal <- Minithesis.any tc (Minithesis.integers (-10000) 10000)
+      let x = fromIntegral xVal :: Int32
+          y = fromIntegral yVal :: Int32
+      unless (x + y == y + x) $
+        throwIO (AdditionFailure (x, y))
+
+runMinithesis :: MP.Property -> IO ()
+runMinithesis property = do
+  let base = MP.applyPropertyOptions Minithesis.defaultRunOptions property
+  opts <- Minithesis.resolveRunOptions base
+  MP.runProperty opts property
