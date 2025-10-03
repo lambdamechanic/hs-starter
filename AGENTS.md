@@ -9,12 +9,15 @@ Run `cabal build` for a full compile and `cabal test` to execute the tasty suite
 ## Coding Style & Naming Conventions
 Format Haskell with `ormolu` (`cabal run ormolu -- --mode inplace $(git ls-files '*.hs')`) before pushing. Stick to two-space indentation, GHC2021 extensions, and module prefixes of `Starter.<Area>`. Keep exported data types and constructors UpperCamelCase; local helpers may remain lowerCamelCase. Generated files must remain ASCII.
 
+## Cabal
+use package.yaml as the source of truth and generate the cabal file with hpack. 
+
 ## Database & Migrations Workflow
 Author schema changes in pgroll YAML first and append new files to `db/pgroll/.ledger`. Once the migration file is staged, run `scripts/squealgen.sh` to apply the pgroll stack in a disposable Postgres container and regenerate `src/Starter/Database/Generated.hs` via the upstream `squealgen` CLI. Never hand-edit `Starter.Database.Generated`; treat it as a build artifact.
 All database interaction must use Squeal; do not introduce alternative PostgreSQL clients.
 
 ## Testing Guidelines
-`cabal test` runs tasty with falsify properties and tmp-postgres-backed smoke checks. Property suites live under `Starter.Tests.Property`; integration helpers use `Starter.Tests.Db`. When introducing new DB features, add tmp-postgres coverage or document why it is skipped. Target >85% coverage once the suite expands and note any regressions in PRs.
+`cabal test` runs sydtest with minithesis-based properties and tmp-postgres-backed smoke checks. Property suites live under `Starter.Tests.Property`; integration helpers use `Starter.Tests.Db`. When introducing new DB features, add tmp-postgres coverage or document why it is skipped. Target >85% coverage once the suite expands and note any regressions in PRs.
 For local coverage runs: ensure `dist-newstyle/cache/plan.json` exists (run `cabal build` once), then execute
 ```
 export PATH="$(pg_config --bindir):$PATH"
@@ -36,4 +39,3 @@ Provide Firebase client config via `FIREBASE_API_KEY` and (optionally) `FIREBASE
 if you can't run dokku in your environment, you're likely just missing this alias:
 
 dokku: aliased to bash $HOME/.dokku/contrib/dokku_client.sh
-

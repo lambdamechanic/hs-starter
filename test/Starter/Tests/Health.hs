@@ -3,18 +3,18 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Starter.Tests.Health
-  ( tests,
+  ( spec,
   )
 where
 
 import Control.Exception (finally)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types (Object, Parser, parseEither, withObject, (.:))
-import Data.Maybe (fromMaybe)
 import Data.HashMap.Strict qualified as HashMap
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Network.HTTP.Types (methodGet, status200)
-import Network.Wai (Application, rawPathInfo, requestMethod, pathInfo)
+import Network.Wai (Application, pathInfo, rawPathInfo, requestMethod)
 import Network.Wai.Test
 import Starter.Database.Connection (DbConfig (..))
 import Starter.Auth.Firebase (firebaseAuthDisabled)
@@ -23,10 +23,9 @@ import qualified Data.ByteString.Char8 as BC
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Starter.Server (HealthCheckReport (..), HealthStatus (..), app)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, (@?=), testCase)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
+import Test.Syd
 
 testSessionConfig :: SessionConfig
 testSessionConfig =
@@ -37,70 +36,73 @@ testSessionConfig =
       sessionLoginPath = "/login"
     }
 
-tests :: TestTree
-tests =
-  testGroup
-    "Health"
-    [ testCase "health returns 200 after DB init" healthOk
-    ]
+spec :: Spec
+spec =
+  describe "Health" $ do
+    it "health returns 200 after DB init" healthOk
 
 healthOk :: IO ()
 healthOk = do
   mCfg <- withDockerPostgres
   case mCfg of
-    Left msg -> putStrLn ("docker postgres unavailable, skipping health test: " <> msg)
+    Left msg -> do
+      putStrLn ("docker postgres unavailable, skipping health test: " <> msg)
+      pure ()
     Right (dbCfg, container) -> do
-      mig <- applyPgrollMigrations dbCfg
-      case mig of
-        Left err -> do
-          _ <- readProcessWithExitCode "docker" ["rm", "-f", container] ""
-          assertFailure ("pgroll migrations failed: " <> err)
-        Right () -> do
-          let env =
-                AppEnv
-                  { appPort = 0,
-                    otelServiceName = "hs-starter-tests",
-                    otelCollectorEndpoint = Nothing,
-                    otelCollectorHeaders = Nothing,
-                    dbConfig = dbCfg,
-                    authorizeLogin = const (pure True),
-                    firebaseAuth = firebaseAuthDisabled,
-                    sessionConfig = testSessionConfig
-                  }
-              application :: Application
-              application = app env
-              cleanup = void (readProcessWithExitCode "docker" ["rm", "-f", container] "")
-          finally
-            ( do
-                res <-
-                  runSession
-                    (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health", pathInfo = ["health"]} ""))
-                    application
-                let code = simpleStatus res
-                when (code /= status200) $
-                  assertFailure
-                    ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
-                healthStatus <-
-                  case Aeson.eitherDecode (simpleBody res) of
-                    Left err ->
-                      assertFailure ("failed to decode health response: " <> err)
-                    Right payload -> pure payload
-                validateHealthPayload env dbCfg healthStatus
-            )
-            cleanup
+      let connectionCtx =
+            unlines
+              [ "docker postgres connection",
+                "  host=" <> Text.unpack (dbHost dbCfg),
+                "  port=" <> show (dbPort dbCfg),
+                "  database=" <> Text.unpack (dbName dbCfg),
+                "  user=" <> Text.unpack (dbUser dbCfg)
+              ]
+          cleanup = void (readProcessWithExitCode "docker" ["rm", "-f", container] "")
+          env =
+            AppEnv
+              { appPort = 0,
+                otelServiceName = "hs-starter-tests",
+                otelCollectorEndpoint = Nothing,
+                otelCollectorHeaders = Nothing,
+                dbConfig = dbCfg,
+                authorizeLogin = const (pure True),
+                firebaseAuth = firebaseAuthDisabled,
+                sessionConfig = testSessionConfig
+              }
+          application :: Application
+          application = app env
+      finally
+        ( context connectionCtx $ do
+            applyPgrollMigrations dbCfg
+            res <-
+              runSession
+                (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health", pathInfo = ["health"]} ""))
+                application
+            let code = simpleStatus res
+            when (code /= status200) $
+              expectationFailure
+                ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
+            healthStatus <-
+              case Aeson.eitherDecode (simpleBody res) of
+                Left err ->
+                  expectationFailure ("failed to decode health response: " <> err)
+                Right payload -> pure payload
+            validateHealthPayload env dbCfg healthStatus
+        )
+        cleanup
 
 validateHealthPayload :: AppEnv -> DbConfig -> HealthStatus -> IO ()
 validateHealthPayload env dbCfg payload = do
-  payload.status @?= "ok"
-  payload.service @?= otelServiceName env
-  assertBool "health version should be non-empty" (not (Text.null payload.version))
+  payload.status `shouldBe` "ok"
+  payload.service `shouldBe` otelServiceName env
+  payload.version `shouldSatisfy` (not . Text.null)
   case HashMap.lookup "database" payload.checks of
-    Nothing -> assertFailure "health response missing database check"
+    Nothing -> expectationFailure "health response missing database check"
     Just dbReport -> do
-      dbReport.status @?= "ok"
-      assertBool "database durationMs should be non-negative" (dbReport.durationMs >= 0)
+      dbReport.status `shouldBe` "ok"
+      dbReport.durationMs `shouldSatisfy` (>= 0)
       case parseEither (databaseDetailsParser dbCfg) dbReport.details of
-        Left err -> assertFailure ("invalid database check details: " <> err)
+        Left err -> expectationFailure ("invalid database check details: " <> err)
         Right () -> pure ()
 
 databaseDetailsParser :: DbConfig -> Aeson.Value -> Parser ()
@@ -165,26 +167,51 @@ withDockerPostgres = do
                            , container))
 
 -- | Apply pgroll migrations against the given DbConfig.
-applyPgrollMigrations :: DbConfig -> IO (Either String ())
+applyPgrollMigrations :: DbConfig -> IO ()
 applyPgrollMigrations DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = do
-  let url = "postgres://" <> Text.unpack dbUser
-            <> maybe "" (\p -> ":" <> Text.unpack p) dbPassword
-            <> "@" <> Text.unpack dbHost
-            <> ":" <> show dbPort
-            <> "/" <> Text.unpack dbName
-            <> "?sslmode=disable"
+  let url =
+        "postgres://"
+          <> Text.unpack dbUser
+          <> maybe "" (\p -> ":" <> Text.unpack p) dbPassword
+          <> "@"
+          <> Text.unpack dbHost
+          <> ":"
+          <> show dbPort
+          <> "/"
+          <> Text.unpack dbName
+          <> "?sslmode=disable"
+      formatCommandContext label exitCode stdoutText stderrText =
+        unlines
+          [ label <> " exit=" <> show exitCode,
+            "stdout:",
+            indentBlock stdoutText,
+            "stderr:",
+            indentBlock stderrText
+          ]
+      indentBlock = unlines . fmap ("  " <>) . lines
   (vcode, vout, verr) <- readProcessWithExitCode "pgroll" ["--version"] ""
-  putStrLn ("pgroll version: exit=" <> show vcode <> "; stdout=\n" <> vout <> "stderr=\n" <> verr)
-  if vcode /= ExitSuccess
-    then pure (Left "pgroll not found or failed to run")
-    else do
-      (icode, iout, ierr) <- readProcessWithExitCode "pgroll" ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"] ""
-      putStrLn ("pgroll init exit=" <> show icode)
-      if icode /= ExitSuccess
-        then pure (Left ("pgroll init failed:\nSTDOUT:\n" <> iout <> "\nSTDERR:\n" <> ierr))
-        else do
-          (mcode, mout, merr) <- readProcessWithExitCode "pgroll" ["migrate", "db/pgroll", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll", "--complete"] ""
-          putStrLn ("pgroll migrate exit=" <> show mcode)
-          if mcode /= ExitSuccess
-            then pure (Left ("pgroll migrate failed:\nSTDOUT:\n" <> mout <> "\nSTDERR:\n" <> merr))
-            else pure (Right ())
+  context (formatCommandContext "pgroll --version" vcode vout verr) $
+    vcode `shouldBe` ExitSuccess
+  (icode, iout, ierr) <-
+    readProcessWithExitCode
+      "pgroll"
+      ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"]
+      ""
+  context (formatCommandContext "pgroll init" icode iout ierr) $
+    icode `shouldBe` ExitSuccess
+  (mcode, mout, merr) <-
+    readProcessWithExitCode
+      "pgroll"
+      [ "migrate",
+        "db/pgroll",
+        "--postgres-url",
+        url,
+        "--schema",
+        "public",
+        "--pgroll-schema",
+        "pgroll",
+        "--complete"
+      ]
+      ""
+  context (formatCommandContext "pgroll migrate" mcode mout merr) $
+    mcode `shouldBe` ExitSuccess
