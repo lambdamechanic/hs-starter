@@ -55,9 +55,6 @@ library
     , hs-opentelemetry-instrumentation-servant ==0.2.*
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
-    , htmx ==0.1.*
-    , htmx-lucid ==0.2.*
-    , htmx-servant ==0.2.*
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
@@ -107,9 +104,6 @@ executable hs-starter
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
     , hs-starter
-    , htmx ==0.1.*
-    , htmx-lucid ==0.2.*
-    , htmx-servant ==0.2.*
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
@@ -159,9 +153,6 @@ executable migrate
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
     , hs-starter
-    , htmx ==0.1.*
-    , htmx-lucid ==0.2.*
-    , htmx-servant ==0.2.*
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
@@ -225,9 +216,6 @@ test-suite hs-starter-tests
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
     , hs-starter
-    , htmx ==0.1.*
-    , htmx-lucid ==0.2.*
-    , htmx-servant ==0.2.*
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
