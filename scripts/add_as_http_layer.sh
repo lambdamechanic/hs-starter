@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $(basename "$0") PREFIX TARGET_FOLDER" >&2
+if [[ $# -ne 3 ]]; then
+  echo "usage: $(basename "$0") PREFIX PROJECT_NAME TARGET_FOLDER" >&2
   exit 1
 fi
 
 PREFIX=$1
-TARGET_INPUT=$2
+PROJECT_NAME=$2
+TARGET_INPUT=$3
+
+if [[ -z "$PROJECT_NAME" ]]; then
+  echo "error: project name must not be empty" >&2
+  exit 1
+fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TEMPLATE_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -48,11 +54,72 @@ PY
 )
 PACKAGE_MODULE=${PACKAGE_NAME//-/_}
 PREFIX_PATH=${PREFIX//./\/}
+PROJECT_UNDERSCORE=${PROJECT_NAME//-/_}
+PROJECT_ENV_PREFIX=$(printf '%s' "$PROJECT_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+PROJECT_DISPLAY=$(python3 - "$PROJECT_NAME" <<'PY'
+import sys
+
+slug = sys.argv[1]
+slug = slug.replace('_', '-')
+parts = [part for part in slug.split('-') if part]
+if not parts:
+    print(slug)
+else:
+    print(' '.join(part[:1].upper() + part[1:] for part in parts))
+PY
+)
 
 abs_path() {
   python3 - "$1" <<'PY'
 import os, sys
 print(os.path.realpath(sys.argv[1]))
+PY
+}
+
+rewrite_file() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import os
+import re
+import sys
+
+path = sys.argv[1]
+
+prefix = os.environ['PREFIX']
+package_name = os.environ['PACKAGE_NAME']
+package_module = os.environ['PACKAGE_MODULE']
+project_name = os.environ['PROJECT_NAME']
+project_underscore = os.environ['PROJECT_UNDERSCORE']
+project_env_prefix = os.environ['PROJECT_ENV_PREFIX']
+project_display = os.environ['PROJECT_DISPLAY']
+
+try:
+    with open(path, 'r', encoding='utf-8') as infile:
+        content = infile.read()
+except UnicodeDecodeError:
+    sys.exit(0)
+
+original = content
+
+if path.endswith('.hs'):
+    content = re.sub(r'\bStarter\.', f'{prefix}.', content)
+    content = content.replace('Paths_hs_starter', f'Paths_{package_module}')
+
+content = content.replace('hs-starter', project_name)
+content = content.replace('hs_starter', project_underscore)
+content = content.replace('HS_STARTER', project_env_prefix)
+content = content.replace('LambdaLabs Starter', f'LambdaLabs {project_display}')
+
+basename = os.path.basename(path)
+if basename == 'Dockerfile':
+    content = content.replace(f'{project_name}.cabal', f'{package_name}.cabal')
+    content = content.replace(f'exe:{project_name}', f'exe:{package_name}')
+    content = content.replace(f'/usr/local/bin/{project_name}', f'/usr/local/bin/{package_name}')
+    content = content.replace(f'CMD ["{project_name}"]', f'CMD ["{package_name}"]')
+
+if content != original:
+    with open(path, 'w', encoding='utf-8') as outfile:
+        outfile.write(content)
 PY
 }
 
@@ -65,6 +132,9 @@ copy_dir_if_missing() {
   else
     mkdir -p "$(dirname "$dest")"
     cp -R "$src" "$dest"
+    if [[ -f "$dest" ]]; then
+      rewrite_file "$dest"
+    fi
   fi
 }
 
@@ -104,11 +174,11 @@ copy_file() {
   fi
 
   cp "$src" "$dest"
-  perl -0pi -e 's/\bStarter\./'"$PREFIX"'./g; s/Paths_hs_starter/Paths_'"$PACKAGE_MODULE"'/g' "$dest"
+  rewrite_file "$dest"
 }
 
-export TEMPLATE_ROOT TARGET PREFIX PREFIX_PATH PACKAGE_MODULE
-export -f copy_file abs_path
+export TEMPLATE_ROOT TARGET PREFIX PREFIX_PATH PACKAGE_NAME PACKAGE_MODULE PROJECT_NAME PROJECT_UNDERSCORE PROJECT_ENV_PREFIX PROJECT_DISPLAY
+export -f copy_file abs_path rewrite_file
 
 find "$TEMPLATE_ROOT" \
   \( -path "$TEMPLATE_ROOT/.git" -o -path "$TEMPLATE_ROOT/dist-newstyle" -o -path "$TEMPLATE_ROOT/.stack-work" \) -prune \

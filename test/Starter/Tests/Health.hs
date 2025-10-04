@@ -73,7 +73,7 @@ healthOk = do
           application = app env
       finally
         ( context connectionCtx $ do
-            applyPgrollMigrations dbCfg
+            applyPgrollMigrations container dbCfg
             res <-
               runSession
                 (srequest (SRequest defaultRequest {requestMethod = methodGet, rawPathInfo = "/health", pathInfo = ["health"]} ""))
@@ -167,8 +167,8 @@ withDockerPostgres = do
                            , container))
 
 -- | Apply pgroll migrations against the given DbConfig.
-applyPgrollMigrations :: DbConfig -> IO ()
-applyPgrollMigrations DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = do
+applyPgrollMigrations :: String -> DbConfig -> IO ()
+applyPgrollMigrations container DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = do
   let url =
         "postgres://"
           <> Text.unpack dbUser
@@ -180,24 +180,43 @@ applyPgrollMigrations DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = do
           <> "/"
           <> Text.unpack dbName
           <> "?sslmode=disable"
-      formatCommandContext label exitCode stdoutText stderrText =
-        unlines
-          [ label <> " exit=" <> show exitCode,
-            "stdout:",
-            indentBlock stdoutText,
-            "stderr:",
-            indentBlock stderrText
-          ]
+      formatCommandContext label exitCode stdoutText stderrText = do
+        dockerSection <-
+          if exitCode == ExitSuccess
+            then pure ""
+            else do
+              (dcode, dout, derr) <- readProcessWithExitCode "docker" ["logs", container] ""
+              let dockerHeader = "docker logs " <> container <> " exit=" <> show dcode
+              pure $
+                "\n"
+                  <> unlines
+                    [ dockerHeader,
+                      "stdout:",
+                      indentBlock dout,
+                      "stderr:",
+                      indentBlock derr
+                    ]
+        let baseContext =
+              unlines
+                [ label <> " exit=" <> show exitCode,
+                  "stdout:",
+                  indentBlock stdoutText,
+                  "stderr:",
+                  indentBlock stderrText
+                ]
+        pure (baseContext <> dockerSection)
       indentBlock = unlines . fmap ("  " <>) . lines
   (vcode, vout, verr) <- readProcessWithExitCode "pgroll" ["--version"] ""
-  context (formatCommandContext "pgroll --version" vcode vout verr) $
+  versionCtx <- formatCommandContext "pgroll --version" vcode vout verr
+  context versionCtx $
     vcode `shouldBe` ExitSuccess
   (icode, iout, ierr) <-
     readProcessWithExitCode
       "pgroll"
       ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"]
       ""
-  context (formatCommandContext "pgroll init" icode iout ierr) $
+  initCtx <- formatCommandContext "pgroll init" icode iout ierr
+  context initCtx $
     icode `shouldBe` ExitSuccess
   (mcode, mout, merr) <-
     readProcessWithExitCode
@@ -213,5 +232,6 @@ applyPgrollMigrations DbConfig {dbHost, dbPort, dbName, dbUser, dbPassword} = do
         "--complete"
       ]
       ""
-  context (formatCommandContext "pgroll migrate" mcode mout merr) $
+  migrateCtx <- formatCommandContext "pgroll migrate" mcode mout merr
+  context migrateCtx $
     mcode `shouldBe` ExitSuccess
