@@ -15,7 +15,9 @@ where
 
 import Crypto.Hash.Algorithms (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac)
+import Control.Monad.Except (ExceptT, runExceptT)
 import qualified Control.Monad.Except as Except
+import Control.Monad.IO.Class (liftIO)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
@@ -69,39 +71,31 @@ type instance AuthServerData (AuthProtect "session") = SessionUser
 
 -- | Load session settings from environment variables.
 loadSessionConfigFromEnv :: IO (Either Text SessionConfig)
-loadSessionConfigFromEnv = do
-  secretEnv <- lookupEnv "SESSION_SECRET"
-  case secretEnv of
-    Nothing -> pure (Left "SESSION_SECRET is not set")
-    Just rawSecret -> do
-      let secret = encodeUtf8 (Text.pack rawSecret)
-      if BS.null secret
-        then pure (Left "SESSION_SECRET cannot be empty")
-        else do
-          cookieNameEnv <- lookupEnv "SESSION_COOKIE_NAME"
-          let cookieName =
-                case fmap (encodeUtf8 . Text.pack) cookieNameEnv of
-                  Just name | not (BS.null name) -> name
-                  _ -> "hs_session"
-          maxAgeEnv <- lookupEnv "SESSION_COOKIE_MAX_AGE_SECONDS"
-          maxAgeSeconds <- case maxAgeEnv of
-            Nothing -> pure defaultSessionMaxAge
-            Just raw ->
-              case readMaybe raw :: Maybe Integer of
-                Nothing -> pure defaultSessionMaxAge
-                Just seconds | seconds <= 0 -> pure defaultSessionMaxAge
-                Just seconds -> pure seconds
-          loginPathEnv <- lookupEnv "SESSION_LOGIN_PATH"
-          let loginPath = maybe "/login" Text.pack loginPathEnv
-          pure
-            ( Right
-                SessionConfig
-                  { sessionSecret = secret,
-                    sessionCookieName = cookieName,
-                    sessionCookieMaxAge = fromInteger maxAgeSeconds,
-                    sessionLoginPath = loginPath
-                  }
-            )
+loadSessionConfigFromEnv = runExceptT $ do
+  secretText <- requireEnvNonEmpty "SESSION_SECRET" "SESSION_SECRET is not set" "SESSION_SECRET cannot be empty"
+  cookieNameEnv <- liftIO (lookupEnv "SESSION_COOKIE_NAME")
+  let cookieName =
+        maybe defaultCookieName id $ do
+          name <- encodeUtf8 . Text.pack <$> cookieNameEnv
+          guard (not (BS.null name))
+          pure name
+      defaultCookieName = "hs_session"
+  maxAgeEnv <- liftIO (lookupEnv "SESSION_COOKIE_MAX_AGE_SECONDS")
+  let maxAgeSeconds =
+        maybe defaultSessionMaxAge id $ do
+          raw <- maxAgeEnv
+          seconds <- readMaybe raw :: Maybe Integer
+          guard (seconds > 0)
+          pure seconds
+  loginPathEnv <- liftIO (lookupEnv "SESSION_LOGIN_PATH")
+  let loginPath = maybe "/login" Text.pack loginPathEnv
+  pure
+    SessionConfig
+      { sessionSecret = encodeUtf8 secretText,
+        sessionCookieName = cookieName,
+        sessionCookieMaxAge = fromInteger maxAgeSeconds,
+        sessionLoginPath = loginPath
+      }
   where
     defaultSessionMaxAge :: Integer
     defaultSessionMaxAge = 60 * 60 * 24 * 7 -- one week
@@ -134,12 +128,10 @@ sessionAuthHandler :: SessionConfig -> AuthHandler Request SessionUser
 sessionAuthHandler config =
   mkAuthHandler $ \req -> do
     let cookies = maybe [] parseCookies (lookup hCookie (requestHeaders req))
-    case lookup (sessionCookieName config) cookies of
-      Nothing -> Except.throwError (redirectToLogin config req "Missing session cookie")
-      Just token ->
-        case decodeSessionCookie config token of
-          Left err -> Except.throwError err
-          Right user -> pure (SessionUser user)
+        missing = redirectToLogin config req "Missing session cookie"
+    token <- maybe (Except.throwError missing) pure (lookup (sessionCookieName config) cookies)
+    user <- either Except.throwError pure (decodeSessionCookie config token)
+    pure (SessionUser user)
 
 -- | Parse and verify a cookie.
 decodeSessionCookie :: SessionConfig -> ByteString -> Either ServerError FirebaseUser
@@ -175,14 +167,24 @@ sanitizeReturnTo :: Request -> Maybe Text
 sanitizeReturnTo req
   | requestMethod req /= "GET" = Nothing
   | otherwise =
-      case decodeUtf8' raw of
-        Left _ -> Nothing
-        Right txt ->
-          if Text.isPrefixOf "/" txt && not (Text.isPrefixOf "//" txt)
-            then Just txt
-            else Nothing
+      either (const Nothing) (
+        \txt -> do
+          guard (Text.isPrefixOf "/" txt && not (Text.isPrefixOf "//" txt))
+          pure txt
+      )
+      (decodeUtf8' raw)
   where
     raw = rawPathInfo req <> rawQueryString req
+
+requireEnv :: String -> Text -> ExceptT Text IO Text
+requireEnv name missingMsg = do
+  value <- liftIO (lookupEnv name)
+  maybe (Except.throwError missingMsg) (pure . Text.pack) value
+
+requireEnvNonEmpty :: String -> Text -> Text -> ExceptT Text IO Text
+requireEnvNonEmpty name missingMsg emptyMsg = do
+  value <- requireEnv name missingMsg
+  if Text.null value then Except.throwError emptyMsg else pure value
 
 attachRedirect :: Text -> Maybe Text -> ServerError -> ServerError
 attachRedirect loginPath mReturn err =
