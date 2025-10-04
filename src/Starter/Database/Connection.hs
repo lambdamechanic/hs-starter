@@ -46,9 +46,9 @@ defaultDbConfig =
 loadDbConfigFromEnv :: IO DbConfig
 loadDbConfigFromEnv = do
   mUrl <- lookupEnvTextOptional "DATABASE_URL"
-  case mUrl >>= parseDatabaseUrl of
-    Just cfg -> pure cfg
-    Nothing -> do
+  maybe loadFallback pure (mUrl >>= parseDatabaseUrl)
+  where
+    loadFallback = do
       host <- lookupEnvText "DB_HOST" (dbHost defaultDbConfig)
       port <- lookupEnvPort "DB_PORT" (dbPort defaultDbConfig)
       name <- lookupEnvText "DB_NAME" (dbName defaultDbConfig)
@@ -71,9 +71,10 @@ loadDbConfigFromEnv = do
 parseDatabaseUrl :: Text -> Maybe DbConfig
 parseDatabaseUrl urlText = do
   ci <- PGURL.parseDatabaseUrl (Text.unpack urlText)
-  let pw = case connectPassword ci of
-        "" -> Nothing
-        p -> Just (Text.pack p)
+  let pw = do
+        let raw = connectPassword ci
+        guard (not (null raw))
+        pure (Text.pack raw)
   pure
     DbConfig
       { dbHost = Text.pack (connectHost ci),
@@ -113,10 +114,10 @@ lookupEnvText name fallback = do
 lookupEnvTextOptional :: String -> IO (Maybe Text)
 lookupEnvTextOptional name = do
   value <- lookupEnv name
-  pure $ case value of
-    Nothing -> Nothing
-    Just val | null val -> Nothing
-    Just val -> Just (Text.pack val)
+  pure $ do
+    raw <- value
+    guard (not (null raw))
+    pure (Text.pack raw)
 
 lookupEnvPort :: String -> Word16 -> IO Word16
 lookupEnvPort name fallback = do

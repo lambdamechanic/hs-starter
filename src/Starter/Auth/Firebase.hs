@@ -145,48 +145,44 @@ firebaseAuthDisabled =
 
 -- | Load Firebase configuration from environment variables, constructing the verifier.
 loadFirebaseAuthFromEnv :: IO (Either Text FirebaseAuth)
-loadFirebaseAuthFromEnv = do
-  projectIdEnv <- lookupEnv "FIREBASE_PROJECT_ID"
-  case projectIdEnv of
-    Nothing -> pure (Left "FIREBASE_PROJECT_ID is not set")
-    Just rawProjectId -> do
-      let projectId = Text.pack rawProjectId
-      apiKeyEnv <- lookupEnv "FIREBASE_API_KEY"
-      case apiKeyEnv of
-        Nothing -> pure (Left "FIREBASE_API_KEY is not set")
-        Just rawApiKey -> do
-          let apiKey = Text.pack rawApiKey
-          if Text.null apiKey
-            then pure (Left "FIREBASE_API_KEY cannot be empty")
-            else do
-              jwksUri <- maybe defaultJwksUri Text.pack <$> lookupEnv "FIREBASE_CERTS_URL"
-              skewSeconds <- lookupEnv "FIREBASE_TOKEN_SKEW_SECONDS"
-              clockSkew <- case skewSeconds of
-                Nothing -> pure defaultSkew
-                Just rawSkew ->
-                  case readMaybe rawSkew :: Maybe Double of
-                    Nothing -> pure defaultSkew
-                    Just seconds
-                      | seconds < 0 -> pure defaultSkew
-                      | otherwise -> pure (realToFrac seconds)
-              authDomainOverride <- lookupEnv "FIREBASE_AUTH_DOMAIN"
-              let defaultDomain = projectId <> ".firebaseapp.com"
-                  authDomain =
-                    case fmap Text.pack authDomainOverride of
-                      Nothing -> defaultDomain
-                      Just domainText | Text.null domainText -> defaultDomain
-                      Just domainText -> domainText
-              auth <-
-                mkFirebaseAuth
-                  FirebaseAuthConfig
-                    { firebaseConfigProjectId = projectId,
-                      firebaseConfigApiKey = apiKey,
-                      firebaseConfigAuthDomain = authDomain,
-                      firebaseConfigJwksUri = jwksUri,
-                      firebaseConfigAllowedSkew = clockSkew,
-                      firebaseConfigCacheTtl = defaultCacheTtl
-                    }
-              pure (Right auth)
+loadFirebaseAuthFromEnv = runExceptT $ do
+  projectId <- requireEnv "FIREBASE_PROJECT_ID" "FIREBASE_PROJECT_ID is not set"
+  apiKey <- requireEnvNonEmpty "FIREBASE_API_KEY" "FIREBASE_API_KEY is not set" "FIREBASE_API_KEY cannot be empty"
+  jwksUri <- liftIO (maybe defaultJwksUri Text.pack <$> lookupEnv "FIREBASE_CERTS_URL")
+  skewSeconds <- liftIO (lookupEnv "FIREBASE_TOKEN_SKEW_SECONDS")
+  let clockSkew =
+        fromMaybe defaultSkew $ do
+          raw <- skewSeconds
+          seconds <- readMaybe raw :: Maybe Double
+          guard (seconds >= 0)
+          pure (realToFrac seconds)
+  authDomainOverride <- liftIO (lookupEnv "FIREBASE_AUTH_DOMAIN")
+  let authDomain =
+        fromMaybe (projectId <> ".firebaseapp.com") $ do
+          domain <- Text.pack <$> authDomainOverride
+          guard (not (Text.null domain))
+          pure domain
+  liftIO
+    ( mkFirebaseAuth
+        FirebaseAuthConfig
+          { firebaseConfigProjectId = projectId,
+            firebaseConfigApiKey = apiKey,
+            firebaseConfigAuthDomain = authDomain,
+            firebaseConfigJwksUri = jwksUri,
+            firebaseConfigAllowedSkew = clockSkew,
+            firebaseConfigCacheTtl = defaultCacheTtl
+          }
+    )
+
+requireEnv :: String -> Text -> ExceptT Text IO Text
+requireEnv name missingMsg = do
+  value <- liftIO (lookupEnv name)
+  maybe (Except.throwError missingMsg) (pure . Text.pack) value
+
+requireEnvNonEmpty :: String -> Text -> Text -> ExceptT Text IO Text
+requireEnvNonEmpty name missingMsg emptyMsg = do
+  value <- requireEnv name missingMsg
+  if Text.null value then Except.throwError emptyMsg else pure value
 
 -- | Construct a Firebase verifier using the provided configuration.
 mkFirebaseAuth :: FirebaseAuthConfig -> IO FirebaseAuth
@@ -342,9 +338,7 @@ textBody = BL.fromStrict . encodeUtf8
 -- | Convert StringOrURI to Text for easier handling.
 stringOrUriToText :: StringOrURI -> Text
 stringOrUriToText sor =
-  case sor ^? string of
-    Just txt -> txt
-    Nothing -> Text.pack (show sor)
+  fromMaybe (Text.pack (show sor)) (sor ^? string)
 
 -- | Decode the compact JWT representation.
 decodeToken :: Text -> ExceptT JWTError IO SignedJWT
