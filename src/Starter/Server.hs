@@ -35,17 +35,12 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
-import Htmx.Lucid.Core (hxTarget_)
-import Htmx.Lucid.Head (recommendedVersion, useHtmxVersion)
-import Htmx.Servant.Lucid (hxGetSafe_)
-import Htmx.Servant.Request (HXRequest)
 import Lucid (Html, ToHtml (..), toHtmlRaw)
 import Lucid.Base (renderBS)
 import Lucid.Html5
   ( a_,
     alt_,
     body_,
-    button_,
     charset_,
     class_,
     content_,
@@ -123,7 +118,6 @@ type SessionApi =
 type PrivateApi =
   Protected
     ( "me"
-        :> HXRequest
         :> Get '[HtmlView] (Html ())
     )
 
@@ -132,7 +126,6 @@ type Api = HealthApi :<|> PublicApi :<|> SessionApi :<|> PrivateApi
 type ProtectedMeRoute =
   AuthProtect "session"
     :> "me"
-    :> HXRequest
     :> Get '[HtmlView] (Html ())
 
 homeRouteProxy :: Proxy HomeRoute
@@ -296,7 +289,7 @@ sessionServer :: AppEnv -> Server SessionApi
 sessionServer env = sessionExchangeHandler env
 
 privateServer :: AppEnv -> Server PrivateApi
-privateServer env (SessionUser user) hxRequest = meHandler env user hxRequest
+privateServer env (SessionUser user) = meHandler env user
 
 sessionExchangeHandler :: AppEnv -> SessionExchangeRequest -> Handler (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
 sessionExchangeHandler env SessionExchangeRequest {serIdToken, serReturnTo} = do
@@ -318,8 +311,8 @@ sessionExchangeHandler env SessionExchangeRequest {serIdToken, serReturnTo} = do
       redirectTarget = resolveReturnTo serReturnTo
   pure $ addHeader cookieHeader SessionExchangeResponse {redirect = redirectTarget}
 
-meHandler :: AppEnv -> FirebaseUser -> Maybe Bool -> Handler (Html ())
-meHandler env user hxRequest = do
+meHandler :: AppEnv -> FirebaseUser -> Handler (Html ())
+meHandler env user = do
   now <- liftIO getCurrentTime
   allowed <- liftIO (authorizeLogin env user)
   dbUser <-
@@ -327,25 +320,18 @@ meHandler env user hxRequest = do
       >>= maybe (throwError err500 {errBody = "failed to upsert user"}) pure
   liftIO $ recordFirebaseLogin env dbUser user allowed now
   if allowed
-    then pure (renderProfilePage (firebaseAuth env) hxRequest user dbUser)
+    then pure (renderProfilePage (firebaseAuth env) user dbUser)
     else throwError (forbiddenLogin user)
 
 homePage :: AppEnv -> Html ()
 homePage _ =
-  let baseButtonAttrs =
-        [ hxGetSafe_ protectedMeLink,
-          hxTarget_ "#profile-panel"
-        ]
-   in layoutPage homeLink loginLink "LambdaLabs Starter" $ do
-        h1_ "Welcome to hs-starter"
-        p_ "Use the button below to fetch your Firebase profile via HTMX."
-        div_ [class_ "actions"] $ do
-          button_ (baseButtonAttrs <> [class_ "button-primary"]) "Load your profile"
-          p_ $ do
-            "Prefer a full page? "
-            a_ [href_ (linkToText protectedMeLink)] "Open /me"
-        div_ [id_ "profile-panel"] $
-          p_ "Profile details will show up here once you are signed in."
+  layoutPage homeLink loginLink "LambdaLabs Starter" $ do
+    h1_ "Welcome to hs-starter"
+    p_ "This starter kit now ships with a TypeScript frontend for Firebase flows."
+    p_ $ do
+      "Once signed in, you can "
+      a_ [href_ (linkToText protectedMeLink)] "view your profile"
+      " to verify stored account details."
 
 loginPage :: AppEnv -> Html ()
 loginPage env =
@@ -364,14 +350,13 @@ layoutPage homeNavLink loginNavLink titleText content =
         meta_ [charset_ "utf-8"]
         meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
         title_ (toHtml titleText)
-        useHtmxVersion recommendedVersion
         link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/water.css@2/out/water.css"]
       body_ $ do
         nav_ $ do
           a_ [href_ (linkToText homeNavLink)] "Home"
           a_ [href_ (linkToText loginNavLink)] "Sign in"
         main_ [id_ "content"] content
-        footer_ $ p_ "Built with Servant, HTMX, and Lucid."
+        footer_ $ p_ "Built with Servant and Lucid."
 
 upsertFirebaseUser :: AppEnv -> FirebaseUser -> Bool -> UTCTime -> IO (Maybe DbUserRow)
 upsertFirebaseUser env FirebaseUser {uid = subject, issuer = issuerValue, email = userEmail, name = displayName, picture = avatarUrl} allowed now =
@@ -427,15 +412,9 @@ attachJson err =
   err {errHeaders = ("Content-Type", "application/json; charset=utf-8") : filter ((/= "Content-Type") . fst) (errHeaders err)}
 
 
-renderProfilePage :: FirebaseAuth -> Maybe Bool -> FirebaseUser -> DbUserRow -> Html ()
-renderProfilePage _ hxHeader user dbUser =
-  let panel = profilePanel user dbUser
-   in if isHx hxHeader
-        then panel
-        else layoutPage homeLink loginLink "Your profile" panel
-  where
-    isHx (Just True) = True
-    isHx _ = False
+renderProfilePage :: FirebaseAuth -> FirebaseUser -> DbUserRow -> Html ()
+renderProfilePage _ user dbUser =
+  layoutPage homeLink loginLink "Your profile" (profilePanel user dbUser)
 
 profilePanel :: FirebaseUser -> DbUserRow -> Html ()
 profilePanel FirebaseUser {uid = subject, issuer = issuerValue, email = emailValue, emailVerified = verified, name = displayName, picture = avatarUrl, audience = audiences, claims = customClaims} DbUserRow {userAllowed} =
@@ -453,12 +432,7 @@ profilePanel FirebaseUser {uid = subject, issuer = issuerValue, email = emailVal
       audienceDetail audiences
       claimsDetail customClaims
     div_ [class_ "actions"] $
-      button_
-        [ hxGetSafe_ protectedMeLink,
-          hxTarget_ "#profile-panel",
-          class_ "button-secondary"
-        ]
-        "Refresh profile"
+      a_ [href_ (linkToText protectedMeLink), class_ "button-secondary"] "Refresh profile"
 
 textDetail :: Text -> Text -> Html ()
 textDetail label value = do
