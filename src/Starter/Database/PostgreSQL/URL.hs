@@ -1,13 +1,17 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Database.PostgreSQL.Simple.URL
+-- Module      :  Starter.Database.PostgreSQL.URL
 -- Copyright   :  2014-2018 © Futurice OY, Oleg Grenrus
 -- License     :  MIT (see the file LICENSE)
 --
 -- Maintainer  :  Oleg Grenrus <oleg.grenrus@iki.fi>
 --
 ----------------------------------------------------------------------------
-module Database.PostgreSQL.Simple.URL (parseDatabaseUrl, uriToConnectInfo) where
+module Starter.Database.PostgreSQL.URL
+  ( parseDatabaseUrl,
+    uriToConnectInfo
+  )
+where
 
 import Control.Applicative
 import Data.List.Split

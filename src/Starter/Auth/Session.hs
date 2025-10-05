@@ -23,6 +23,7 @@ import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
+import Data.Base64.Types (extractBase64)
 import qualified Data.ByteString.Lazy as BL
 import Data.Bifunctor (first)
 import qualified Data.Text as Text
@@ -104,9 +105,9 @@ loadSessionConfigFromEnv = runExceptT $ do
 mkSessionCookie :: SessionConfig -> UTCTime -> FirebaseUser -> SetCookie
 mkSessionCookie SessionConfig {sessionSecret, sessionCookieName, sessionCookieMaxAge} now user =
   let payloadRaw = BL.toStrict (Aeson.encode user)
-      payload = B64.encodeBase64' payloadRaw
+      payload = extractBase64 (B64.encodeBase64' payloadRaw)
       mac = hmac sessionSecret payload :: HMAC SHA256
-      signature = B64.encodeBase64' (BA.convert mac :: ByteString)
+      signature = extractBase64 (B64.encodeBase64' (BA.convert mac :: ByteString))
       token = payload <> "." <> signature
       expiresAt = addUTCTime sessionCookieMaxAge now
    in defaultSetCookie
@@ -142,8 +143,8 @@ decodeSessionCookie SessionConfig {sessionSecret, sessionLoginPath} raw =
       | otherwise ->
           let signatureB64 = BS.tail rest
            in do
-                payload <- first (const invalidSession) (B64.decodeBase64 payloadB64)
-                signature <- first (const invalidSession) (B64.decodeBase64 signatureB64)
+                payload <- first (const invalidSession) (B64.decodeBase64Untyped payloadB64)
+                signature <- first (const invalidSession) (B64.decodeBase64Untyped signatureB64)
                 let mac = hmac sessionSecret payloadB64 :: HMAC SHA256
                     expected = BA.convert mac :: ByteString
                 if BA.constEq expected signature
