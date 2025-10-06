@@ -31,7 +31,7 @@ WORKDIR /workspace
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN --mount=type=cache,target=/root/.npm npm ci --prefix frontend
 
-COPY hs-starter.cabal cabal.project cabal.project.freeze ./
+COPY hs-starter.cabal cabal.project ./
 RUN --mount=type=cache,target=/root/.ghcup \
     --mount=type=cache,target=/root/.cabal/store \
     --mount=type=cache,target=/root/.cabal/packages \
