@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get install --yes --no-install-recommends \
          curl ca-certificates xz-utils \
          build-essential pkg-config git \
-         libgmp-dev libpq-dev zlib1g-dev \
+         libgmp-dev libpq-dev libtinfo-dev zlib1g-dev \
     && update-ca-certificates
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
       | tar -xJ -C /usr/local --strip-components=1
