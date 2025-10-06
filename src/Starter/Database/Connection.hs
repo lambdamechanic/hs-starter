@@ -14,7 +14,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word16)
 import Database.PostgreSQL.Simple (ConnectInfo (..))
-import Database.PostgreSQL.Simple.URL qualified as PGURL
+import Starter.Database.PostgreSQL.URL qualified as PGURL
 import Squeal.PostgreSQL (PQ)
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Database.Schema (AppDb)

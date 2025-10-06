@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.38.0.
+-- This file has been generated from package.yaml by hpack version 0.38.2.
 --
 -- see: https://github.com/sol/hpack
 
@@ -29,6 +29,7 @@ library
       Starter.Server
   other-modules:
       Starter.Database.Generated
+      Starter.Database.PostgreSQL.URL
       Paths_hs_starter
   autogen-modules:
       Paths_hs_starter
@@ -44,33 +45,33 @@ library
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0
-    , base64 >=0.4 && <0.6
+    , base >=4.19.2.0 && <4.22
+    , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
-    , containers ==0.6.*
+    , containers >=0.6 && <0.9
     , cookie ==0.5.*
     , cryptonite ==0.30.*
     , generics-sop ==0.5.*
-    , hashable ==1.4.*
+    , hashable >=1.4 && <1.6
     , hs-opentelemetry-instrumentation-servant ==0.2.*
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
-    , jose ==0.11.*
-    , lens ==5.2.*
+    , jose >=0.11 && <0.13
+    , lens >=5.2 && <5.4
     , lucid2 >=0.0.20221012 && <0.1
     , memory >=0.17 && <0.19
     , mtl ==2.3.*
-    , network-uri ==2.6.*
+    , network-uri >=2.6 && <2.8
     , postgresql-simple ==0.7.*
-    , postgresql-simple-url ==0.2.*
     , servant ==0.20.*
     , servant-server ==0.20.*
+    , split ==0.2.*
     , squeal-postgresql >=0.9.2 && <0.10
     , text >=2.0 && <2.2
-    , time >=1.12 && <1.15
+    , time >=1.12 && <1.16
     , unliftio ==0.2.*
     , unordered-containers ==0.2.*
     , uuid ==1.3.*
@@ -92,14 +93,14 @@ executable hs-starter
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0
-    , base64 >=0.4 && <0.6
+    , base >=4.19.2.0 && <4.22
+    , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
-    , containers ==0.6.*
+    , containers >=0.6 && <0.9
     , cookie ==0.5.*
     , cryptonite ==0.30.*
     , generics-sop ==0.5.*
-    , hashable ==1.4.*
+    , hashable >=1.4 && <1.6
     , hs-opentelemetry-instrumentation-servant ==0.2.*
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
@@ -107,19 +108,19 @@ executable hs-starter
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
-    , jose ==0.11.*
-    , lens ==5.2.*
+    , jose >=0.11 && <0.13
+    , lens >=5.2 && <5.4
     , lucid2 >=0.0.20221012 && <0.1
     , memory >=0.17 && <0.19
     , mtl ==2.3.*
-    , network-uri ==2.6.*
+    , network-uri >=2.6 && <2.8
     , postgresql-simple ==0.7.*
-    , postgresql-simple-url ==0.2.*
     , servant ==0.20.*
     , servant-server ==0.20.*
+    , split ==0.2.*
     , squeal-postgresql >=0.9.2 && <0.10
     , text >=2.0 && <2.2
-    , time >=1.12 && <1.15
+    , time >=1.12 && <1.16
     , unliftio ==0.2.*
     , unordered-containers ==0.2.*
     , uuid ==1.3.*
@@ -141,14 +142,14 @@ executable migrate
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0
-    , base64 >=0.4 && <0.6
+    , base >=4.19.2.0 && <4.22
+    , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
-    , containers ==0.6.*
+    , containers >=0.6 && <0.9
     , cookie ==0.5.*
     , cryptonite ==0.30.*
     , generics-sop ==0.5.*
-    , hashable ==1.4.*
+    , hashable >=1.4 && <1.6
     , hs-opentelemetry-instrumentation-servant ==0.2.*
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
@@ -156,19 +157,19 @@ executable migrate
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
-    , jose ==0.11.*
-    , lens ==5.2.*
+    , jose >=0.11 && <0.13
+    , lens >=5.2 && <5.4
     , lucid2 >=0.0.20221012 && <0.1
     , memory >=0.17 && <0.19
     , mtl ==2.3.*
-    , network-uri ==2.6.*
+    , network-uri >=2.6 && <2.8
     , postgresql-simple ==0.7.*
-    , postgresql-simple-url ==0.2.*
     , servant ==0.20.*
     , servant-server ==0.20.*
+    , split ==0.2.*
     , squeal-postgresql >=0.9.2 && <0.10
     , text >=2.0 && <2.2
-    , time >=1.12 && <1.15
+    , time >=1.12 && <1.16
     , unliftio ==0.2.*
     , unordered-containers ==0.2.*
     , uuid ==1.3.*
@@ -204,14 +205,14 @@ test-suite hs-starter-tests
       sydtest-discover:sydtest-discover
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0
-    , base64 >=0.4 && <0.6
+    , base >=4.19.2.0 && <4.22
+    , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
-    , containers ==0.6.*
+    , containers >=0.6 && <0.9
     , cookie ==0.5.*
     , cryptonite ==0.30.*
     , generics-sop ==0.5.*
-    , hashable ==1.4.*
+    , hashable >=1.4 && <1.6
     , hs-opentelemetry-instrumentation-servant ==0.2.*
     , hs-opentelemetry-instrumentation-wai ==0.1.*
     , hs-opentelemetry-sdk ==0.1.*
@@ -219,23 +220,23 @@ test-suite hs-starter-tests
     , http-client ==0.7.*
     , http-client-tls ==0.3.*
     , http-types ==0.12.*
-    , jose ==0.11.*
-    , lens ==5.2.*
+    , jose >=0.11 && <0.13
+    , lens >=5.2 && <5.4
     , lucid2 >=0.0.20221012 && <0.1
     , memory >=0.17 && <0.19
     , minithesis ==0.1.*
     , mtl ==2.3.*
-    , network-uri ==2.6.*
+    , network-uri >=2.6 && <2.8
     , postgresql-simple ==0.7.*
-    , postgresql-simple-url ==0.2.*
     , process ==1.6.*
     , roboservant >=0.1.0.4
     , servant ==0.20.*
     , servant-server ==0.20.*
+    , split ==0.2.*
     , squeal-postgresql >=0.9.2 && <0.10
     , sydtest ==0.20.*
     , text >=2.0 && <2.2
-    , time >=1.12 && <1.15
+    , time >=1.12 && <1.16
     , tmp-postgres ==1.35.*
     , unliftio ==0.2.*
     , unordered-containers ==0.2.*
