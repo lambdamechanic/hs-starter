@@ -4,8 +4,8 @@ FROM ubuntu:22.04 AS build
 ARG PGROLL_VERSION=0.14.2
 ARG NODE_VERSION=20.11.1
 ENV DEBIAN_FRONTEND=noninteractive
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
     && apt-get install --yes --no-install-recommends \
          curl ca-certificates xz-utils \
@@ -72,8 +72,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OTEL_EXPORTER_OTLP_HEADERS=
 WORKDIR ${APP_HOME}
 
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
     && apt-get install --yes --no-install-recommends \
          libgmp10 libtinfo6 libpq5 zlib1g ca-certificates \
