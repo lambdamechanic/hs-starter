@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.38.0.
+-- This file has been generated from package.yaml by hpack version 0.38.2.
 --
 -- see: https://github.com/sol/hpack
 
@@ -45,7 +45,7 @@ library
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0 && <4.22 && <4.22
+    , base >=4.19.2.0 && <4.22
     , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
     , containers >=0.6 && <0.9
@@ -93,7 +93,7 @@ executable hs-starter
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0 && <4.22 && <4.22
+    , base >=4.19.2.0 && <4.22
     , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
     , containers >=0.6 && <0.9
@@ -142,7 +142,7 @@ executable migrate
   ghc-options: -Wall -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0 && <4.22 && <4.22
+    , base >=4.19.2.0 && <4.22
     , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
     , containers >=0.6 && <0.9
@@ -205,7 +205,7 @@ test-suite hs-starter-tests
       sydtest-discover:sydtest-discover
   build-depends:
       aeson ==2.2.*
-    , base >=4.19.2.0 && <4.22 && <4.22
+    , base >=4.19.2.0 && <4.22
     , base64 >=0.4 && <1.1
     , bytestring >=0.11 && <0.13
     , containers >=0.6 && <0.9

@@ -2,7 +2,6 @@ name: sample-app
 version: 0.0.1
 language: GHC2021
 dependencies:
-- base >=4.19 && <4.22
 - base >=4.19.2.0 && <4.22
 - aeson >=2.2 && <2.3
 - bytestring >=0.11 && <0.13

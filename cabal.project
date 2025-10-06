@@ -16,7 +16,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/mwotton/roboservant.git
-  tag: f06d8ac99ce13a55c4f35e98065963ce08634806
+  tag: 885d990bc016a0fb75dcaba76ffb515ddfdfe472
 
 source-repository-package
   type: git
@@ -26,7 +26,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdamechanic/minithesis-hs.git
-  tag: 1fc7854b45d1b1c01aab333621060ce223f8757b
+  tag: 2ee9e15077fb95850318eb7fca33c49a7fd45fa8
+  subdir: minithesis
 
 package minithesis
   tests: False
