@@ -180,13 +180,22 @@ applyPgrollMigrations container DbConfig {dbHost, dbPort, dbName, dbUser, dbPass
           <> "/"
           <> Text.unpack dbName
           <> "?sslmode=disable"
-      formatCommandContext label exitCode stdoutText stderrText = do
+      maxAttempts = 3 :: Int
+      retryDelayMicros = 500000
+      formatCommandContext label attempt exitCode stdoutText stderrText = do
         dockerSection <-
           if exitCode == ExitSuccess
             then pure ""
             else do
               (dcode, dout, derr) <- readProcessWithExitCode "docker" ["logs", container] ""
-              let dockerHeader = "docker logs " <> container <> " exit=" <> show dcode
+              let dockerHeader =
+                    unwords
+                      [ "docker logs",
+                        container,
+                        "exit=" <> show dcode,
+                        "(attempt",
+                        show attempt <> ")"
+                      ]
               pure $
                 "\n"
                   <> unlines
@@ -198,7 +207,7 @@ applyPgrollMigrations container DbConfig {dbHost, dbPort, dbName, dbUser, dbPass
                     ]
         let baseContext =
               unlines
-                [ label <> " exit=" <> show exitCode,
+                [ label <> " (attempt " <> show attempt <> ") exit=" <> show exitCode,
                   "stdout:",
                   indentBlock stdoutText,
                   "stderr:",
@@ -206,21 +215,33 @@ applyPgrollMigrations container DbConfig {dbHost, dbPort, dbName, dbUser, dbPass
                 ]
         pure (baseContext <> dockerSection)
       indentBlock = unlines . fmap ("  " <>) . lines
-  (vcode, vout, verr) <- readProcessWithExitCode "pgroll" ["--version"] ""
-  versionCtx <- formatCommandContext "pgroll --version" vcode vout verr
-  context versionCtx $
-    vcode `shouldBe` ExitSuccess
-  (icode, iout, ierr) <-
-    readProcessWithExitCode
-      "pgroll"
+      runWithRetries label args = go 1 []
+        where
+          go attempt acc = do
+            (code, out, err) <- readProcessWithExitCode "pgroll" args ""
+            ctx <- formatCommandContext label attempt code out err
+            let acc' = acc ++ [ctx]
+            if code == ExitSuccess || attempt >= maxAttempts
+              then pure (acc', code)
+              else threadDelay retryDelayMicros >> go (attempt + 1) acc'
+  (versionContexts, vcode) <- runWithRetries "pgroll --version" ["--version"]
+  case versionContexts of
+    [] -> expectationFailure "pgroll --version produced no context"
+    ctxs -> do
+      mapM_ (\ctx -> context ctx (pure ())) (init ctxs)
+      context (last ctxs) $ vcode `shouldBe` ExitSuccess
+  (initContexts, icode) <-
+    runWithRetries
+      "pgroll init"
       ["init", "--postgres-url", url, "--schema", "public", "--pgroll-schema", "pgroll"]
-      ""
-  initCtx <- formatCommandContext "pgroll init" icode iout ierr
-  context initCtx $
-    icode `shouldBe` ExitSuccess
-  (mcode, mout, merr) <-
-    readProcessWithExitCode
-      "pgroll"
+  case initContexts of
+    [] -> expectationFailure "pgroll init produced no context"
+    ctxs -> do
+      mapM_ (\ctx -> context ctx (pure ())) (init ctxs)
+      context (last ctxs) $ icode `shouldBe` ExitSuccess
+  (migrateContexts, mcode) <-
+    runWithRetries
+      "pgroll migrate"
       [ "migrate",
         "db/pgroll",
         "--postgres-url",
@@ -231,7 +252,8 @@ applyPgrollMigrations container DbConfig {dbHost, dbPort, dbName, dbUser, dbPass
         "pgroll",
         "--complete"
       ]
-      ""
-  migrateCtx <- formatCommandContext "pgroll migrate" mcode mout merr
-  context migrateCtx $
-    mcode `shouldBe` ExitSuccess
+  case migrateContexts of
+    [] -> expectationFailure "pgroll migrate produced no context"
+    ctxs -> do
+      mapM_ (\ctx -> context ctx (pure ())) (init ctxs)
+      context (last ctxs) $ mcode `shouldBe` ExitSuccess
