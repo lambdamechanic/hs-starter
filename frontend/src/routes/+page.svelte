@@ -8,7 +8,9 @@
     signOut,
     type Auth
   } from 'firebase/auth';
-  import type { FirebaseClientConfig, UserProfileResponse } from '$lib/types';
+  import { DefaultService, type SessionExchangeRequest } from '$lib/apiClient';
+  import { ApiError } from '$lib/api/core/ApiError';
+  import type { FirebaseClientConfig, UserProfileResponse } from '$lib/api';
 
   let firebaseApp: FirebaseApp | null = null;
   let auth: Auth | null = null;
@@ -27,20 +29,16 @@
 
   async function fetchFirebaseConfig(): Promise<FirebaseClientConfig> {
     if (!configPromise) {
-      configPromise = fetch('/firebase/config', {
-        credentials: 'same-origin',
-        headers: {
-          Accept: 'application/json'
-        }
-      })
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error('Failed to load Firebase configuration');
-          }
-          return (await response.json()) as FirebaseClientConfig;
-        })
+      configPromise = DefaultService.getFirebaseConfig()
+        .then((config) => config)
         .catch((error) => {
-          configError = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof ApiError
+              ? error.body?.error?.message ?? error.message
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          configError = message;
           throw error;
         });
     }
@@ -62,23 +60,18 @@
   async function fetchProfile(): Promise<void> {
     refreshingProfile = true;
     try {
-      const response = await fetch('/me', {
-        credentials: 'same-origin',
-        headers: {
-          Accept: 'application/json'
-        }
-      });
-      if (response.status === 401) {
-        profile = null;
-        return;
-      }
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(body || 'Failed to load profile');
-      }
-      profile = (await response.json()) as UserProfileResponse;
+      const data = await DefaultService.getMe();
+      profile = data;
     } catch (error) {
-      firebaseError = error instanceof Error ? error.message : String(error);
+      if (error instanceof ApiError) {
+        if (error.status === 401) {
+          profile = null;
+          return;
+        }
+        firebaseError = error.body?.error?.message ?? error.message;
+      } else {
+        firebaseError = error instanceof Error ? error.message : String(error);
+      }
     } finally {
       refreshingProfile = false;
     }
@@ -94,27 +87,19 @@
       const result = await signInWithPopup(auth, provider);
       const idToken = await result.user.getIdToken(true);
       const params = new URLSearchParams(window.location.search);
-      const returnTo = params.get('return_to') ?? '/';
+      const returnTo = params.get('return_to') ?? undefined;
 
-      const response = await fetch('/session/exchange', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ idToken, return_to: returnTo })
-      });
-
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        const message = detail?.error?.message ?? 'Session exchange failed';
-        throw new Error(message);
-      }
+      const payload: SessionExchangeRequest = { idToken, returnTo };
+      await DefaultService.postSessionExchange({ requestBody: payload });
 
       await fetchProfile();
     } catch (error) {
-      firebaseError = error instanceof Error ? error.message : String(error);
+      if (error instanceof ApiError) {
+        const message = error.body?.error?.message ?? error.message;
+        firebaseError = message;
+      } else {
+        firebaseError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
 
@@ -125,21 +110,15 @@
       if (auth) {
         await signOut(auth);
       }
-      const response = await fetch('/session/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          Accept: 'application/json'
-        }
-      });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        const message = detail?.error?.message ?? 'Failed to clear session';
-        throw new Error(message);
-      }
+      await DefaultService.postSessionLogout();
       profile = null;
     } catch (error) {
-      firebaseError = error instanceof Error ? error.message : String(error);
+      if (error instanceof ApiError) {
+        const message = error.body?.error?.message ?? error.message;
+        firebaseError = message;
+      } else {
+        firebaseError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
 

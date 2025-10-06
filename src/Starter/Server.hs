@@ -18,6 +18,7 @@ module Starter.Server
     PrivateApi,
     server,
     healthServer,
+    appOpenApi,
     HealthStatus (..),
     HealthCheckReport (..),
     FirebaseClientConfig (..),
@@ -27,12 +28,15 @@ where
 
 import Control.Exception (SomeException, displayException, throwIO, try)
 import Control.Monad.IO.Class (liftIO)
+import Control.Lens ((.~), (?~))
 import Data.Aeson (FromJSON, ToJSON, Value, encode, object, (.=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Builder (toLazyByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.HashMap.Strict qualified as HashMap
 import Data.Hashable (Hashable)
+import Data.OpenApi (OpenApi, ToSchema(..))
+import Data.OpenApi.Lens qualified as OpenApiLens
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
@@ -44,6 +48,7 @@ import Network.Wai (responseFile)
 import qualified Network.Wai as Wai
 import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ss404Handler)
 import Servant
+import Servant.OpenApi (HasOpenApi (..), toOpenApi)
 import Squeal.PostgreSQL (Jsonb (..))
 import Squeal.PostgreSQL qualified as PQ
 import Starter.Auth.Firebase (FirebaseAuth (..), FirebaseUser (..), toServerError)
@@ -64,7 +69,7 @@ data HealthStatus = HealthStatus
     checks :: HashMap.HashMap Text HealthCheckReport
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, Hashable)
+  deriving anyclass (ToJSON, FromJSON, Hashable, ToSchema)
 
 data HealthCheckReport = HealthCheckReport
   { status :: Text,
@@ -73,38 +78,39 @@ data HealthCheckReport = HealthCheckReport
     details :: Value
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, Hashable)
+  deriving anyclass (ToJSON, FromJSON, Hashable, ToSchema)
 
 data SessionExchangeRequest = SessionExchangeRequest
-  { serIdToken :: Text,
-    serReturnTo :: Maybe Text
+  { idToken :: Text,
+    returnTo :: Maybe Text
   }
   deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToSchema)
 
 instance FromJSON SessionExchangeRequest where
   parseJSON =
     Aeson.withObject "SessionExchangeRequest" $ \obj -> do
       token <- obj .: "idToken"
-      returnTo <- obj .:? "return_to"
-      pure SessionExchangeRequest {serIdToken = token, serReturnTo = returnTo}
+      returnTo <- obj .:? "return_to" <|> obj .:? "returnTo"
+      pure SessionExchangeRequest {idToken = token, returnTo = returnTo}
 
 data SessionExchangeResponse = SessionExchangeResponse
   { redirect :: Text
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (ToJSON, ToSchema)
 
 data SessionLogoutResponse = SessionLogoutResponse
   { ok :: Bool
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (ToJSON, ToSchema)
 
 data ErrorResponse = ErrorResponse
   { error :: ErrorBody
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (ToJSON, ToSchema)
 
 -- | Top-level API definition.
 type HealthApi = "health" :> Get '[JSON] HealthStatus
@@ -128,8 +134,11 @@ type PrivateApi =
 -- | Combined API.
 type Api = HealthApi :<|> FirebaseConfigApi :<|> SessionApi :<|> PrivateApi
 
+-- | Route exposing the OpenAPI specification.
+type OpenApiRoute = "openapi.json" :> Get '[JSON] OpenApi
 
-type AppApi = Api :<|> Raw
+
+type AppApi = OpenApiRoute :<|> Api :<|> Raw
 
 
 data ErrorBody = ErrorBody
@@ -138,7 +147,7 @@ data ErrorBody = ErrorBody
     details :: Value
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (ToJSON, ToSchema)
 
 
 data FirebaseClientConfig = FirebaseClientConfig
@@ -151,18 +160,21 @@ data FirebaseClientConfig = FirebaseClientConfig
   , measurementId :: Maybe Text
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (ToJSON, ToSchema)
 
 data UserProfileResponse = UserProfileResponse
   { firebase :: FirebaseUser
   , allowed :: Bool
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (ToJSON, ToSchema)
 
 
 instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
   getEndpoint _ req = getEndpoint (Proxy :: Proxy api) req
+
+instance HasOpenApi api => HasOpenApi (AuthProtect tag :> api) where
+  toOpenApi _ = toOpenApi (Proxy :: Proxy api)
 
 apiProxy :: Proxy Api
 apiProxy = Proxy
@@ -171,7 +183,17 @@ appApiProxy :: Proxy AppApi
 appApiProxy = Proxy
 
 app :: AppEnv -> Application
-app env = serveWithContext appApiProxy (sessionContext (sessionConfig env)) (server env :<|> staticServer env)
+app env = serveWithContext appApiProxy (sessionContext (sessionConfig env)) (openApiServer :<|> server env :<|> staticServer env)
+
+openApiServer :: Server OpenApiRoute
+openApiServer = pure appOpenApi
+
+appOpenApi :: OpenApi
+appOpenApi =
+  toOpenApi apiProxy
+    & OpenApiLens.info . OpenApiLens.title .~ "hs-starter API"
+    & OpenApiLens.info . OpenApiLens.version .~ Text.pack (showVersion Paths.version)
+    & OpenApiLens.info . OpenApiLens.description ?~ "OpenAPI specification for the hs-starter backend."
 
 server :: AppEnv -> Server Api
 server env = healthServer env :<|> firebaseConfigServer env :<|> sessionServer env :<|> privateServer env
@@ -286,8 +308,8 @@ privateServer :: AppEnv -> Server PrivateApi
 privateServer env (SessionUser user) = meHandler env user
 
 sessionExchangeHandler :: AppEnv -> SessionExchangeRequest -> Handler (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
-sessionExchangeHandler env SessionExchangeRequest {serIdToken, serReturnTo} = do
-  verificationResult <- liftIO (firebaseVerifyIdToken (firebaseAuth env) serIdToken)
+sessionExchangeHandler env SessionExchangeRequest {idToken, returnTo} = do
+  verificationResult <- liftIO (firebaseVerifyIdToken (firebaseAuth env) idToken)
   firebaseUser <- either (throwError . toServerError) pure verificationResult
   now <- liftIO getCurrentTime
   allowed <- liftIO (authorizeLogin env firebaseUser)
@@ -302,7 +324,7 @@ sessionExchangeHandler env SessionExchangeRequest {serIdToken, serReturnTo} = do
           ( BL.toStrict
               (toLazyByteString (renderSetCookie cookie))
           )
-      redirectTarget = resolveReturnTo serReturnTo
+      redirectTarget = resolveReturnTo returnTo
   pure $ addHeader cookieHeader SessionExchangeResponse {redirect = redirectTarget}
 
 sessionLogoutHandler :: AppEnv -> Handler (Headers '[Header "Set-Cookie" Text] SessionLogoutResponse)

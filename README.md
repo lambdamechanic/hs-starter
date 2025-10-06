@@ -47,6 +47,18 @@ npm run dev -- --host
 
 The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; the Haskell application serves those assets directly via a Servant `Raw` route, so Dokku’s default nginx setup simply proxies everything to the Haskell process. When running the Haskell server locally against a production build, set `FRONTEND_DIST_DIR=frontend/build` (after `npm run build`) so the Servant route can find the compiled bundle without copying files into `/opt/app/frontend`.
 
+## API schema
+
+The backend exposes an OpenAPI v3 document at `/openapi.json`. Generate a fresh spec and TypeScript client with:
+
+```bash
+cabal build openapi
+$(cabal list-bin openapi) > frontend/openapi.json
+(cd frontend && npm run generate:api)
+```
+
+The SvelteKit frontend consumes the generated client in `frontend/src/lib/api`.
+
 ## Firebase configuration audit
 
 Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app. It will:

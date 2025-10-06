@@ -47,6 +47,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
+import Data.OpenApi (NamedSchema(..), ToSchema(..))
 import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Text qualified as Text
@@ -114,6 +115,7 @@ data FirebaseUser = FirebaseUser
     claims :: HashMap.HashMap Text Value
   }
   deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToSchema)
 
 instance Aeson.FromJSON FirebaseUser where
   parseJSON =
@@ -380,3 +382,6 @@ defaultSkew = 300
 -- | Default JWKS cache duration (10 minutes).
 defaultCacheTtl :: NominalDiffTime
 defaultCacheTtl = 600
+
+instance ToSchema Value where
+  declareNamedSchema _ = pure (NamedSchema (Just "JsonValue") mempty)

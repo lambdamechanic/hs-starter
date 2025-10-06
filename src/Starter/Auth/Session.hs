@@ -208,8 +208,7 @@ jsonError base code msg =
           )
       headers =
         ("Content-Type", "application/json; charset=utf-8")
-          : filter ((
-ame -> name /= "Content-Type") . fst) (errHeaders base)
+          : filter ((\name -> name /= "Content-Type") . fst) (errHeaders base)
    in base {errBody = body, errHeaders = headers}
 
 acceptsJson :: Request -> Bool
@@ -219,6 +218,7 @@ acceptsJson req =
     Just header ->
       let lowered = BC.map toLower header
        in BC.isInfixOf "application/json" lowered
+
 attachRedirect :: Text -> Maybe Text -> ServerError -> ServerError
 attachRedirect loginPath mReturn err =
   let baseLocation = loginPath
