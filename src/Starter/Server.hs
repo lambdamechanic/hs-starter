@@ -327,7 +327,7 @@ homePage :: AppEnv -> Html ()
 homePage _ =
   layoutPage homeLink loginLink "LambdaLabs Starter" $ do
     h1_ "Welcome to hs-starter"
-    p_ "This starter kit now ships with a TypeScript frontend for Firebase flows."
+    p_ "This project template now ships with a TypeScript frontend for Firebase flows."
     p_ $ do
       "Once signed in, you can "
       a_ [href_ (linkToText protectedMeLink)] "view your profile"

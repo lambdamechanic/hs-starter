@@ -24,6 +24,49 @@ fi
 
 cp -R "$FIXTURE_DIR"/* "$WORK_DIR"
 
+cat <<'EOF' > "$WORK_DIR/cabal.project"
+packages: .
+EOF
+
+ROOT_CABAL="$REPO_ROOT/cabal.project"
+DEST_CABAL="$WORK_DIR/cabal.project.local"
+export ROOT_CABAL DEST_CABAL
+python3 <<'PYGEN'
+import os
+from pathlib import Path
+
+root = Path(os.environ['ROOT_CABAL'])
+dest = Path(os.environ['DEST_CABAL'])
+lines = root.read_text().splitlines()
+allow_newer = [line.strip() for line in lines if line.strip().startswith('allow-newer')]
+blocks = []
+current = []
+collect = False
+for line in lines:
+    if line.startswith('source-repository-package'):
+        if current:
+            blocks.append(current)
+        current = [line]
+        collect = True
+    elif collect:
+        if line.strip() == '':
+            current.append(line)
+            blocks.append(current)
+            current = []
+            collect = False
+        else:
+            current.append(line)
+if current:
+    blocks.append(current)
+with dest.open('w', encoding='utf-8') as f:
+    f.write('tests: False\n')
+    for line in allow_newer:
+        f.write(f"{line}\n")
+    for block in blocks:
+        f.write("\n".join(block).rstrip())
+        f.write("\n\n")
+PYGEN
+
 pushd "$WORK_DIR" >/dev/null
 
 if command -v hpack >/dev/null 2>&1; then
