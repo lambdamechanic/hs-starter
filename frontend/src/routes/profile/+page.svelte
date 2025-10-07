@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Topbar from '$lib/components/Topbar.svelte';
-  import { session, initialiseSession, loginWithGoogle, refreshProfile } from '$lib/session';
+  import { session, initialiseSession, refreshProfile } from '$lib/session';
 
   $: state = $session;
   $: loading = state.loading;
@@ -79,9 +79,9 @@
       <section class="card empty">
         <h1>Sign in to view your profile</h1>
         <p class="muted small">
-          You need an active Firebase-backed session to access profile details.
+          Use the sign-in button in the top right to create an active Firebase-backed session and
+          unlock profile details.
         </p>
-        <button class="primary" on:click={loginWithGoogle}>Sign in with Google</button>
       </section>
     {/if}
   </section>
@@ -193,11 +193,6 @@
     font-weight: 600;
     cursor: pointer;
     transition: transform 0.1s ease, box-shadow 0.1s ease;
-  }
-
-  button.primary {
-    background: linear-gradient(120deg, #2563eb, #8b5cf6);
-    color: white;
   }
 
   button.secondary {

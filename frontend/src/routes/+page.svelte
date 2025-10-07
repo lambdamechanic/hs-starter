@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Topbar from '$lib/components/Topbar.svelte';
-  import { session, initialiseSession, loginWithGoogle, refreshProfile } from '$lib/session';
+  import { session, initialiseSession, refreshProfile } from '$lib/session';
 
   $: state = $session;
   $: loading = state.loading;
@@ -41,9 +41,7 @@
             {#if refreshingProfile}Refreshing…{:else}Refresh profile{/if}
           </button>
         {:else}
-          <button class="primary" on:click={loginWithGoogle} disabled={loading}>
-            {#if loading}Checking session…{:else}Sign in with Google{/if}
-          </button>
+          <p class="muted small cta-note">Use the sign-in button in the top right to get started.</p>
         {/if}
       </div>
     </div>
@@ -94,10 +92,9 @@
         <section class="card login-card">
           <h2>Authenticate with Firebase</h2>
           <p class="muted small">
-            Use your Google identity to create a signed backend session and explore the starter
-            stack.
+            Use your Google identity via the top-right sign-in button to create a signed backend
+            session and explore the starter stack.
           </p>
-          <button class="primary" on:click={loginWithGoogle}>Sign in with Google</button>
         </section>
       {/if}
     </div>
@@ -190,6 +187,10 @@
     flex-wrap: wrap;
   }
 
+  .cta-note {
+    margin: 0;
+  }
+
   .hero-card {
     flex: 1 1 320px;
     display: flex;
@@ -279,11 +280,6 @@
     align-items: center;
     justify-content: center;
     text-decoration: none;
-  }
-
-  button.primary {
-    background: linear-gradient(120deg, #2563eb, #8b5cf6);
-    color: white;
   }
 
   button.secondary,
