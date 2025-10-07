@@ -3,5 +3,20 @@
     "dokku": {
       "predeploy": "/opt/app/scripts/dokku-predeploy.sh"
     }
+  },
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "web health",
+        "description": "Ensure hs-starter is responding on /health",
+        "path": "/health",
+        "port": 8080,
+        "attempts": 3,
+        "timeout": 5,
+        "wait": 5,
+        "initialDelay": 10
+      }
+    ]
   }
 }
