@@ -101,6 +101,20 @@ jobs:
             cabal test --enable-coverage --enable-per-component --test-show-details=streaming
           fi
 
+      - name: Prepare http layer workdir
+        run: |
+          mkdir -p .ci-cache/http-layer
+          echo "WORKDIR=$(pwd)/.ci-cache/http-layer" >> "$GITHUB_ENV"
+
+      - name: Cache http layer dist-newstyle
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/http-layer/dist-newstyle
+          key: http-layer-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('scripts/add_as_http_layer.sh', 'scripts/test_add_http_layer.sh', 'scripts/templates/cabal.project.local', 'fixtures/sample/**') }}
+          restore-keys: |
+            http-layer-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
+            http-layer-${{ runner.os }}-
+
       - name: Integration test add_as_http_layer
         run: scripts/test_add_http_layer.sh
 
