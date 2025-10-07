@@ -9,11 +9,7 @@ if [[ -n ${WORKDIR:-} ]]; then
   WORK_DIR="$WORKDIR"
   mkdir -p "$WORK_DIR"
   CLEAN_WORKDIR=0
-  find "$WORK_DIR" -mindepth 1 -maxdepth 1 \
-    ! -name 'dist-newstyle' \
-    ! -name '.cabal' \
-    ! -name '.cache' \
-    -exec rm -rf {} +
+  find "$WORK_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 else
   WORK_DIR=$(mktemp -d)
   CLEAN_WORKDIR=1
@@ -21,18 +17,10 @@ else
 fi
 PROJECT_NAME="sample-app"
 
-# Keep cabal artefacts contained inside the temporary work tree so test runs
-# avoid mutating the user's global store and package DB.
-CABAL_HOME="$WORK_DIR/.cabal"
-mkdir -p "$CABAL_HOME"
-export CABAL_DIR="$CABAL_HOME"
-export CABAL_CONFIG="$CABAL_HOME/config"
-export XDG_CACHE_HOME="$WORK_DIR/.cache"
-
-if [[ ! -f "$CABAL_CONFIG" ]]; then
-  cabal user-config init --force >/dev/null
-  cabal update >/dev/null
-fi
+# Use the shared Cabal store/config provided by CI for faster rebuilds.
+unset CABAL_DIR
+unset CABAL_CONFIG
+unset XDG_CACHE_HOME
 
 cp -R "$FIXTURE_DIR"/* "$WORK_DIR"
 
@@ -86,8 +74,6 @@ if command -v hpack >/dev/null 2>&1; then
 else
   echo "warning: hpack not available; skipping initial cabal generation" >&2
 fi
-
-cabal build all >/dev/null
 
 "$SCRIPT_DIR/add_as_http_layer.sh" Sample.Web "$PROJECT_NAME" "$WORK_DIR"
 
