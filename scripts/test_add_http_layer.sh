@@ -5,23 +5,20 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 SCRIPT_DIR="$REPO_ROOT/scripts"
 TEMPLATE_ROOT="$REPO_ROOT"
 FIXTURE_DIR="$REPO_ROOT/fixtures/sample"
-DIST_CACHE_DIR=${1:-}
-WORK_DIR=$(mktemp -d)
-cleanup() {
-  if [[ -n $DIST_CACHE_DIR ]]; then
-    mkdir -p "$DIST_CACHE_DIR"
-    if [[ -d "$WORK_DIR/dist-newstyle" ]]; then
-      if command -v rsync >/dev/null 2>&1; then
-        rsync -a --delete "$WORK_DIR/dist-newstyle/" "$DIST_CACHE_DIR/"
-      else
-        rm -rf "$DIST_CACHE_DIR"/*
-        cp -a "$WORK_DIR/dist-newstyle"/. "$DIST_CACHE_DIR"/
-      fi
-    fi
-  fi
-  rm -rf "$WORK_DIR"
-}
-trap cleanup EXIT
+if [[ -n ${WORKDIR:-} ]]; then
+  WORK_DIR="$WORKDIR"
+  mkdir -p "$WORK_DIR"
+  CLEAN_WORKDIR=0
+  find "$WORK_DIR" -mindepth 1 -maxdepth 1 \
+    ! -name 'dist-newstyle' \
+    ! -name '.cabal' \
+    ! -name '.cache' \
+    -exec rm -rf {} +
+else
+  WORK_DIR=$(mktemp -d)
+  CLEAN_WORKDIR=1
+  trap 'rm -rf "$WORK_DIR"' EXIT
+fi
 PROJECT_NAME="sample-app"
 
 # Keep cabal artefacts contained inside the temporary work tree so test runs
@@ -31,16 +28,6 @@ mkdir -p "$CABAL_HOME"
 export CABAL_DIR="$CABAL_HOME"
 export CABAL_CONFIG="$CABAL_HOME/config"
 export XDG_CACHE_HOME="$WORK_DIR/.cache"
-
-if [[ -n $DIST_CACHE_DIR && -d $DIST_CACHE_DIR ]]; then
-  mkdir -p "$WORK_DIR/dist-newstyle"
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a "$DIST_CACHE_DIR/" "$WORK_DIR/dist-newstyle/"
-  else
-    rm -rf "$WORK_DIR/dist-newstyle"/*
-    cp -a "$DIST_CACHE_DIR"/. "$WORK_DIR/dist-newstyle"/
-  fi
-fi
 
 if [[ ! -f "$CABAL_CONFIG" ]]; then
   cabal user-config init --force >/dev/null
