@@ -57,6 +57,15 @@ jobs:
             cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
             cabal-${{ runner.os }}-
 
+      - name: Cache dist-newstyle
+        uses: actions/cache@v4
+        with:
+          path: dist-newstyle
+          key: "dist-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('cabal.project', 'package.yaml', 'hs-starter.cabal', 'app/**/*.hs', 'src/**/*.hs', 'test/**/*.hs') }}"
+          restore-keys: |
+            dist-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
+            dist-${{ runner.os }}-
+
       - name: Install tooling
         run: |
           sudo apt-get install --yes python3-yaml
@@ -66,8 +75,8 @@ jobs:
           cabal install hpack --installdir "$HOME/.local/bin" --overwrite-policy=always
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Build
-        run: cabal build all
+      - name: Generate cabal plan
+        run: cabal build all --enable-tests --enable-benchmarks --dry-run
 
       - name: Test with coverage
         timeout-minutes: 20
