@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -z ${MINITHESIS_MAX_EXAMPLES:-} ]]; then
+  export MINITHESIS_MAX_EXAMPLES=1000
+fi
+
 hp_mode=0
 if [[ ${1:-} == "--hp2ps" ]]; then
   hp_mode=1
@@ -11,7 +15,7 @@ marker=$(mktemp)
 trap 'rm -f "$marker"' EXIT
 : >"$marker"
 
-common=(cabal test hs-starter-tests --enable-tests --enable-profiling --test-show-details=streaming)
+common=(cabal test hs-starter-tests --enable-tests --enable-profiling --test-show-details=streaming --test-option=--no-timeout)
 if [[ $hp_mode -eq 1 ]]; then
   cmd=(${common[@]} --test-option=+RTS --test-option=-hc --test-option=-RTS "$@")
 else
