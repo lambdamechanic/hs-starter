@@ -19,6 +19,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect Haskell package metadata
+        run: |
+          set -euo pipefail
+          CABAL_FILE=$(ls *.cabal | head -n 1)
+          echo "CABAL_FILE=$CABAL_FILE" >> "$GITHUB_ENV"
+          PACKAGE_NAME=${CABAL_FILE%.cabal}
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> "$GITHUB_ENV"
+          TEST_SUITE_NAME=$(awk '/^test-suite / {print $2; exit}' "$CABAL_FILE")
+          if [ -z "$TEST_SUITE_NAME" ]; then
+            TEST_SUITE_NAME="${PACKAGE_NAME}-tests"
+          fi
+          echo "TEST_SUITE_NAME=$TEST_SUITE_NAME" >> "$GITHUB_ENV"
+          PATHS_MODULE="Paths_${PACKAGE_NAME//-/_}"
+          echo "PATHS_MODULE=$PATHS_MODULE" >> "$GITHUB_ENV"
+
       - name: Install PostgreSQL client tools
         run: |
           sudo apt-get update
@@ -52,7 +67,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.setup.outputs.cabal-store }}
-          key: cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('cabal.project', 'hs-starter.cabal') }}
+          key: cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('cabal.project', '*.cabal') }}
           restore-keys: |
             cabal-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
             cabal-${{ runner.os }}-
@@ -61,7 +76,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dist-newstyle
-          key: "dist-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('cabal.project', 'package.yaml', 'hs-starter.cabal', 'app/**/*.hs', 'src/**/*.hs', 'test/**/*.hs') }}"
+          key: "dist-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('cabal.project', 'package.yaml', '*.cabal', 'app/**/*.hs', 'src/**/*.hs', 'test/**/*.hs') }}"
           restore-keys: |
             dist-${{ runner.os }}-${{ steps.setup.outputs.ghc-version }}-
             dist-${{ runner.os }}-
@@ -88,8 +103,9 @@ jobs:
           which cabal
           cabal --version
           ghc --version
-          UNIT_LIB_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
-          UNIT_TEST_ID=$(jq -r '."install-plan"[] | select(."pkg-name" == "hs-starter" and (."component-name" | startswith("test:"))) | ."id"' dist-newstyle/cache/plan.json)
+          PACKAGE_NAME=${PACKAGE_NAME}
+          UNIT_LIB_ID=$(jq -r --arg pkg "$PACKAGE_NAME" '."install-plan"[] | select(."pkg-name" == $pkg and ."component-name" == "lib") | ."id"' dist-newstyle/cache/plan.json)
+          UNIT_TEST_ID=$(jq -r --arg pkg "$PACKAGE_NAME" '."install-plan"[] | select(."pkg-name" == $pkg and (."component-name" | startswith("test:"))) | ."id"' dist-newstyle/cache/plan.json)
           if cabal test --help | grep -q -- "--coverage-for"; then
             echo "Using cabal --coverage-for=${UNIT_LIB_ID} and test=${UNIT_TEST_ID}"
             cabal test --enable-coverage --enable-per-component \
@@ -121,8 +137,8 @@ jobs:
       - name: Generate coverage report (Codecov JSON)
         uses: 8c6794b6/hpc-codecov-action@v4
         with:
-          target: cabal:hs-starter-tests
-          excludes: Main,Paths_hs_starter
+          target: cabal:${{ env.TEST_SUITE_NAME }}
+          excludes: Main,${{ env.PATHS_MODULE }}
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
