@@ -1,139 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
-  import {
-    getAuth,
-    GoogleAuthProvider,
-    signInWithPopup,
-    signOut,
-    type Auth
-  } from 'firebase/auth';
-  import { DefaultService, type SessionExchangeRequest } from '$lib/apiClient';
-  import { ApiError } from '$lib/api/core/ApiError';
-  import type { FirebaseClientConfig, UserProfileResponse } from '$lib/api';
+  import Topbar from '$lib/components/Topbar.svelte';
+  import { session, initialiseSession, loginWithGoogle, refreshProfile } from '$lib/session';
 
-  let firebaseApp: FirebaseApp | null = null;
-  let auth: Auth | null = null;
-  let firebaseReady = false;
+  $: state = $session;
+  $: loading = state.loading;
+  $: profile = state.profile;
+  $: firebaseError = state.firebaseError;
+  $: configError = state.configError;
+  $: refreshingProfile = state.refreshingProfile;
+  $: displayName =
+    profile?.firebase.name ?? profile?.firebase.email ?? profile?.firebase.uid ?? null;
+  $: avatarUrl = profile?.firebase.picture ?? null;
+  $: avatarInitial = displayName ? displayName.trim().charAt(0).toUpperCase() : 'U';
 
-  let loading = true;
-  let profile: UserProfileResponse | null = null;
-  let firebaseError: string | null = null;
-  let configError: string | null = null;
-  let refreshingProfile = false;
-
-  let configPromise: Promise<FirebaseClientConfig> | null = null;
-
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-
-  async function fetchFirebaseConfig(): Promise<FirebaseClientConfig> {
-    if (!configPromise) {
-      configPromise = DefaultService.getFirebaseConfig()
-        .then((config) => config)
-        .catch((error) => {
-          const message =
-            error instanceof ApiError
-              ? error.body?.error?.message ?? error.message
-              : error instanceof Error
-                ? error.message
-                : String(error);
-          configError = message;
-          throw error;
-        });
-    }
-    return configPromise;
-  }
-
-  async function ensureFirebase(): Promise<void> {
-    if (firebaseReady && firebaseApp && auth) {
-      return;
-    }
-
-    const config = await fetchFirebaseConfig();
-    const existing = getApps();
-    firebaseApp = existing.length > 0 ? existing[0] : initializeApp(config, 'hs-starter');
-    auth = getAuth(firebaseApp);
-    firebaseReady = true;
-  }
-
-  async function fetchProfile(): Promise<void> {
-    refreshingProfile = true;
-    try {
-      const data = await DefaultService.getMe();
-      profile = data;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 401) {
-          profile = null;
-          return;
-        }
-        firebaseError = error.body?.error?.message ?? error.message;
-      } else {
-        firebaseError = error instanceof Error ? error.message : String(error);
-      }
-    } finally {
-      refreshingProfile = false;
-    }
-  }
-
-  async function login(): Promise<void> {
-    firebaseError = null;
-    try {
-      await ensureFirebase();
-      if (!auth) {
-        throw new Error('Firebase auth not initialised');
-      }
-      const result = await signInWithPopup(auth, provider);
-      const idToken = await result.user.getIdToken(true);
-      const params = new URLSearchParams(window.location.search);
-      const returnTo = params.get('return_to') ?? undefined;
-
-      const payload: SessionExchangeRequest = { idToken, returnTo };
-      await DefaultService.postSessionExchange({ requestBody: payload });
-
-      await fetchProfile();
-    } catch (error) {
-      if (error instanceof ApiError) {
-        const message = error.body?.error?.message ?? error.message;
-        firebaseError = message;
-      } else {
-        firebaseError = error instanceof Error ? error.message : String(error);
-      }
-    }
-  }
-
-  async function logout(): Promise<void> {
-    firebaseError = null;
-    try {
-      await ensureFirebase();
-      if (auth) {
-        await signOut(auth);
-      }
-      await DefaultService.postSessionLogout();
-      profile = null;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        const message = error.body?.error?.message ?? error.message;
-        firebaseError = message;
-      } else {
-        firebaseError = error instanceof Error ? error.message : String(error);
-      }
-    }
-  }
-
-  async function refresh(): Promise<void> {
-    firebaseError = null;
-    await fetchProfile();
-  }
-
-  onMount(async () => {
-    try {
-      await fetchProfile();
-      await ensureFirebase();
-    } finally {
-      loading = false;
-    }
+  onMount(() => {
+    initialiseSession();
   });
 </script>
 
@@ -141,24 +23,47 @@
   <title>hs-starter</title>
 </svelte:head>
 
-<main class="container">
-  <section class="panel">
-    <h1>hs-starter</h1>
-    <p class="muted">Firebase-authenticated profile served by the Haskell backend.</p>
+<main class="page">
+  <Topbar />
 
-    {#if loading}
-      <p>Loading…</p>
-    {:else}
-      {#if profile}
-        <section class="card">
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Full-stack starter</p>
+      <h1>Build production-ready Haskell services faster</h1>
+      <p>
+        hs-starter pairs a Servant backend, Squeal migrations, and a SvelteKit frontend with
+        Firebase authentication, observability hooks, and deploy-ready Docker tooling.
+      </p>
+      <div class="cta">
+        {#if profile}
+          <a class="secondary link" href="/profile">View profile</a>
+          <button class="secondary" on:click={refreshProfile} disabled={refreshingProfile}>
+            {#if refreshingProfile}Refreshing…{:else}Refresh profile{/if}
+          </button>
+        {:else}
+          <button class="primary" on:click={loginWithGoogle} disabled={loading}>
+            {#if loading}Checking session…{:else}Sign in with Google{/if}
+          </button>
+        {/if}
+      </div>
+    </div>
+    <div class="hero-card">
+      {#if loading}
+        <section class="card status-card">
+          <p>Checking your session…</p>
+        </section>
+      {:else if profile}
+        <section class="card profile-card">
           <header>
-            {#if profile.firebase.picture}
-              <img class="avatar" src={profile.firebase.picture} alt="user avatar" />
+            {#if avatarUrl}
+              <img class="avatar" src={avatarUrl} alt={`Avatar for ${displayName ?? 'user'}`} />
+            {:else}
+              <div class="avatar fallback">{avatarInitial}</div>
             {/if}
             <div>
-              <h2>{profile.firebase.name ?? profile.firebase.email ?? profile.firebase.uid}</h2>
+              <h2>{displayName}</h2>
               {#if profile.firebase.email}
-                <p class="muted">{profile.firebase.email}</p>
+                <p class="muted small">{profile.firebase.email}</p>
               {/if}
             </div>
           </header>
@@ -184,84 +89,132 @@
               </div>
             {/if}
           </dl>
-          <footer>
-            <button class="secondary" on:click={refresh} disabled={refreshingProfile}>
-              {#if refreshingProfile}Refreshing…{:else}Refresh profile{/if}
-            </button>
-            <button class="secondary" on:click={logout}>Log out</button>
-          </footer>
         </section>
       {:else}
-        <section class="card">
-          <p>Sign in with Google to create a session.</p>
-          <button class="primary" on:click={login}>Sign in with Google</button>
+        <section class="card login-card">
+          <h2>Authenticate with Firebase</h2>
+          <p class="muted small">
+            Use your Google identity to create a signed backend session and explore the starter
+            stack.
+          </p>
+          <button class="primary" on:click={loginWithGoogle}>Sign in with Google</button>
         </section>
       {/if}
-    {/if}
-
-    {#if firebaseError}
-      <p class="error">{firebaseError}</p>
-    {/if}
-    {#if configError}
-      <p class="error">{configError}</p>
-    {/if}
+    </div>
   </section>
+
+  <section class="features">
+    <article>
+      <h3>Typed API surface</h3>
+      <p>
+        Servant routes, generated OpenAPI clients, and Roboservant smoke tests keep the backend and
+        SPA in sync.
+      </p>
+    </article>
+    <article>
+      <h3>Database confidence</h3>
+      <p>
+        pgroll migrations plus Squeal queries give you reversible schema changes with compile-time
+        safety.
+      </p>
+    </article>
+    <article>
+      <h3>Deployment ready</h3>
+      <p>
+        Docker, Dokku, tracing hooks, and health endpoints ship in the box so you can promote to
+        production quickly.
+      </p>
+    </article>
+  </section>
+
+  {#if firebaseError}
+    <p class="error">{firebaseError}</p>
+  {/if}
+  {#if configError}
+    <p class="error">{configError}</p>
+  {/if}
 </main>
 
 <style>
   :global(body) {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     margin: 0;
-    background: #111827;
-    color: #f1f5f9;
+    background: radial-gradient(circle at top left, #1f2937, #0f172a 45%, #050816 100%);
+    color: #f8fafc;
   }
 
-  main.container {
+  main.page {
     min-height: 100vh;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
+    flex-direction: column;
+    gap: 3rem;
+    padding: 3rem clamp(1.5rem, 5vw, 4rem);
   }
 
-  section.panel {
-    width: min(700px, 100%);
+  .hero {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2.5rem;
+    align-items: stretch;
+  }
+
+  .hero-copy {
+    flex: 1 1 320px;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.1);
-    border-radius: 16px;
-    padding: 2.5rem;
-    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.4);
+    max-width: 520px;
   }
 
-  section.panel > h1 {
+  .hero-copy h1 {
+    font-size: clamp(2.2rem, 4vw, 3rem);
     margin: 0;
   }
 
-  .muted {
-    color: #94a3b8;
+  .hero-copy p {
     margin: 0;
+    line-height: 1.6;
+    color: #cbd5f5;
   }
 
-  section.card {
-    background: rgba(30, 41, 59, 0.9);
-    border-radius: 12px;
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.28em;
+    font-size: 0.75rem;
+    color: rgba(148, 163, 184, 0.7);
+  }
+
+  .cta {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .hero-card {
+    flex: 1 1 320px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .card {
+    width: min(420px, 100%);
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 20px;
     padding: 1.75rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    border: 1px solid rgba(148, 163, 184, 0.15);
+    gap: 1.15rem;
+    box-shadow: 0 28px 60px rgba(2, 6, 23, 0.55);
   }
 
-  section.card header {
+  .profile-card header {
     display: flex;
     align-items: center;
     gap: 1rem;
   }
 
-  section.card header h2 {
+  .profile-card header h2 {
     margin: 0;
     font-size: 1.25rem;
   }
@@ -272,23 +225,34 @@
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid rgba(148, 163, 184, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .avatar.fallback {
+    background: rgba(59, 130, 246, 0.25);
+    color: #dbeafe;
   }
 
   dl {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 0.5rem 1rem;
+    gap: 0.45rem 1rem;
     margin: 0;
   }
 
   dt {
-    color: #94a3b8;
-    font-weight: 500;
+    color: rgba(148, 163, 184, 0.75);
+    font-weight: 600;
   }
 
   dd {
     margin: 0;
-    font-family: 'Fira Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    font-family: "Fira Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.9rem;
   }
 
   .allowed {
@@ -299,15 +263,10 @@
     color: #f87171;
   }
 
-  footer {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-
-  button {
+  button,
+  .link {
     border: none;
-    padding: 0.65rem 1.5rem;
+    padding: 0.65rem 1.6rem;
     border-radius: 999px;
     font-size: 0.95rem;
     font-weight: 600;
@@ -315,14 +274,23 @@
     transition: transform 0.1s ease, box-shadow 0.1s ease;
   }
 
+  .link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+
   button.primary {
     background: linear-gradient(120deg, #2563eb, #8b5cf6);
     color: white;
   }
 
-  button.secondary {
-    background: rgba(148, 163, 184, 0.2);
+  button.secondary,
+  .secondary.link {
+    background: rgba(148, 163, 184, 0.18);
     color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, 0.25);
   }
 
   button:disabled {
@@ -330,16 +298,57 @@
     cursor: wait;
   }
 
-  button:not(:disabled):hover {
+  button:not(:disabled):hover,
+  .secondary.link:hover {
     transform: translateY(-1px);
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15);
+    box-shadow: 0 10px 22px rgba(59, 130, 246, 0.2);
+  }
+
+  .features {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .features article {
+    background: rgba(15, 23, 42, 0.68);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 18px 34px rgba(2, 6, 23, 0.4);
+  }
+
+  .features h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1.1rem;
+  }
+
+  .features p {
+    margin: 0;
+    color: #cbd5f5;
+    line-height: 1.5;
+  }
+
+  .muted {
+    color: #94a3b8;
+  }
+
+  .small {
+    font-size: 0.9rem;
   }
 
   .error {
-    background: rgba(239, 68, 68, 0.15);
-    border: 1px solid rgba(248, 113, 113, 0.4);
+    background: rgba(239, 68, 68, 0.18);
+    border: 1px solid rgba(248, 113, 113, 0.35);
     color: #fecaca;
     border-radius: 12px;
     padding: 1rem;
+    margin: 0;
+  }
+
+  @media (max-width: 640px) {
+    main.page {
+      padding: 2rem 1.25rem 3rem;
+    }
   }
 </style>
