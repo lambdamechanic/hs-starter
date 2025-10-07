@@ -1,18 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Topbar from '$lib/components/Topbar.svelte';
-  import { session, initialiseSession, refreshProfile } from '$lib/session';
+  import { session, initialiseSession } from '$lib/session';
 
   $: state = $session;
   $: loading = state.loading;
   $: profile = state.profile;
   $: firebaseError = state.firebaseError;
   $: configError = state.configError;
-  $: refreshingProfile = state.refreshingProfile;
   $: displayName =
     profile?.firebase.name ?? profile?.firebase.email ?? profile?.firebase.uid ?? null;
-  $: avatarUrl = profile?.firebase.picture ?? null;
-  $: avatarInitial = displayName ? displayName.trim().charAt(0).toUpperCase() : 'U';
 
   onMount(() => {
     initialiseSession();
@@ -36,10 +33,7 @@
       </p>
       <div class="cta">
         {#if profile}
-          <a class="secondary link" href="/profile">View profile</a>
-          <button class="secondary" on:click={refreshProfile} disabled={refreshingProfile}>
-            {#if refreshingProfile}Refreshing…{:else}Refresh profile{/if}
-          </button>
+          <a class="secondary link" href="/profile">Go to your profile</a>
         {:else}
           <p class="muted small cta-note">Use the sign-in button in the top right to get started.</p>
         {/if}
@@ -50,51 +44,20 @@
         <section class="card status-card">
           <p>Checking your session…</p>
         </section>
-      {:else if profile}
-        <section class="card profile-card">
-          <header>
-            {#if avatarUrl}
-              <img class="avatar" src={avatarUrl} alt={`Avatar for ${displayName ?? 'user'}`} />
-            {:else}
-              <div class="avatar fallback">{avatarInitial}</div>
-            {/if}
-            <div>
-              <h2>{displayName}</h2>
-              {#if profile.firebase.email}
-                <p class="muted small">{profile.firebase.email}</p>
-              {/if}
-            </div>
-          </header>
-          <dl>
-            <div>
-              <dt>UID</dt>
-              <dd>{profile.firebase.uid}</dd>
-            </div>
-            <div>
-              <dt>Issuer</dt>
-              <dd>{profile.firebase.issuer}</dd>
-            </div>
-            <div>
-              <dt>Allowed</dt>
-              <dd class:allowed={profile.allowed} class:denied={!profile.allowed}>
-                {profile.allowed ? 'Yes' : 'No'}
-              </dd>
-            </div>
-            {#if profile.firebase.audience?.length}
-              <div>
-                <dt>Audience</dt>
-                <dd>{profile.firebase.audience.join(', ')}</dd>
-              </div>
-            {/if}
-          </dl>
-        </section>
       {:else}
-        <section class="card login-card">
-          <h2>Authenticate with Firebase</h2>
-          <p class="muted small">
-            Use your Google identity via the top-right sign-in button to create a signed backend
-            session and explore the starter stack.
-          </p>
+        <section class="card info-card">
+          <h2>What’s included?</h2>
+          <ul>
+            <li>Typed Servant API with generated clients</li>
+            <li>Squeal migrations and pgroll for reversible schema changes</li>
+            <li>SvelteKit SPA with Firebase auth integration</li>
+            <li>Dokku-ready Dockerfile, observability hooks, and health checks</li>
+          </ul>
+          {#if !profile}
+            <p class="muted small">Sign in to explore the authenticated experience.</p>
+          {:else}
+            <a class="secondary link" href="/profile">Manage your profile</a>
+          {/if}
         </section>
       {/if}
     </div>
@@ -209,62 +172,23 @@
     box-shadow: 0 28px 60px rgba(2, 6, 23, 0.55);
   }
 
-  .profile-card header {
+  .info-card ul {
+    margin: 0;
+    padding-left: 1.25rem;
     display: flex;
-    align-items: center;
-    gap: 1rem;
+    flex-direction: column;
+    gap: 0.65rem;
+    color: #cbd5f5;
   }
 
-  .profile-card header h2 {
-    margin: 0;
-    font-size: 1.25rem;
+  .info-card li {
+    line-height: 1.5;
   }
 
-  .avatar {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid rgba(148, 163, 184, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-
-  .avatar.fallback {
-    background: rgba(59, 130, 246, 0.25);
-    color: #dbeafe;
-  }
-
-  dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.45rem 1rem;
+  .info-card h2 {
     margin: 0;
   }
 
-  dt {
-    color: rgba(148, 163, 184, 0.75);
-    font-weight: 600;
-  }
-
-  dd {
-    margin: 0;
-    font-family: "Fira Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
-    font-size: 0.9rem;
-  }
-
-  .allowed {
-    color: #34d399;
-  }
-
-  .denied {
-    color: #f87171;
-  }
-
-  button,
   .link {
     border: none;
     padding: 0.65rem 1.6rem;
@@ -282,19 +206,12 @@
     text-decoration: none;
   }
 
-  button.secondary,
   .secondary.link {
     background: rgba(148, 163, 184, 0.18);
     color: #e2e8f0;
     border: 1px solid rgba(148, 163, 184, 0.25);
   }
 
-  button:disabled {
-    opacity: 0.6;
-    cursor: wait;
-  }
-
-  button:not(:disabled):hover,
   .secondary.link:hover {
     transform: translateY(-1px);
     box-shadow: 0 10px 22px rgba(59, 130, 246, 0.2);
