@@ -5,9 +5,21 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 SCRIPT_DIR="$REPO_ROOT/scripts"
 TEMPLATE_ROOT="$REPO_ROOT"
 FIXTURE_DIR="$REPO_ROOT/fixtures/sample"
-WORK_DIR=$(mktemp -d)
+if [[ -n ${WORKDIR:-} ]]; then
+  WORK_DIR="$WORKDIR"
+  mkdir -p "$WORK_DIR"
+  CLEAN_WORKDIR=0
+  find "$WORK_DIR" -mindepth 1 -maxdepth 1 \
+    ! -name 'dist-newstyle' \
+    ! -name '.cabal' \
+    ! -name '.cache' \
+    -exec rm -rf {} +
+else
+  WORK_DIR=$(mktemp -d)
+  CLEAN_WORKDIR=1
+  trap 'rm -rf "$WORK_DIR"' EXIT
+fi
 PROJECT_NAME="sample-app"
-trap 'rm -rf "$WORK_DIR"' EXIT
 
 # Keep cabal artefacts contained inside the temporary work tree so test runs
 # avoid mutating the user's global store and package DB.
@@ -75,7 +87,7 @@ else
   echo "warning: hpack not available; skipping initial cabal generation" >&2
 fi
 
-cabal build all --builddir="$WORK_DIR/dist" >/dev/null
+cabal build all >/dev/null
 
 "$SCRIPT_DIR/add_as_http_layer.sh" Sample.Web "$PROJECT_NAME" "$WORK_DIR"
 
@@ -83,7 +95,11 @@ if command -v hpack >/dev/null 2>&1; then
   hpack --force >/dev/null
 fi
 
-cabal build all --builddir="$WORK_DIR/dist" >/dev/null
+cabal build all >/dev/null
+
+if [[ -n ${WORKDIR:-} ]]; then
+  echo "cached dist path: $WORK_DIR/dist-newstyle" >&2
+fi
 
 if rg -iw 'starter' \
     --glob '!**/dist/**' \
