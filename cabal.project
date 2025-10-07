@@ -26,7 +26,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdamechanic/minithesis-hs.git
-  tag: 2ee9e15077fb95850318eb7fca33c49a7fd45fa8
+  tag: a7ae9b036b79e20819e34a6f0189b766c29e471a
   subdir: minithesis
 
 package minithesis
