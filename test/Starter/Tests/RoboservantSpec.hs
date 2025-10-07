@@ -52,7 +52,13 @@ roboservantHealthProperty :: AppEnv -> MP.Property
 roboservantHealthProperty env =
   let traceConfig =
         defaultConfig
-          { RoboConfig.traceChecks = [TraceCheck "noop" (const Nothing)]
+          { RoboConfig.databaseKey = "roboservant-health"
+          , RoboConfig.traceChecks =
+              [ TraceCheck
+                  { traceCheckName = "noop"
+                  , traceCheck = \_ -> pure (Nothing :: Maybe Text.Text)
+                  }
+              ]
           }
    in MP.withTests 1 (Robo.fuzzProperty @HealthApi (healthServer env) traceConfig)
 

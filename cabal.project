@@ -16,7 +16,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/mwotton/roboservant.git
-  tag: 88b9bd0c905f77d1b021043022ff05c0cf9a318a
+  tag: c46a3f3a6733b8d8829d2fad9b95d6017031df3e
 
 source-repository-package
   type: git
