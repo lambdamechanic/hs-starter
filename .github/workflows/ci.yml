@@ -23,58 +23,27 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f package.yaml ]; then
-            python - <<'PY'
-import pathlib
-pkg_path = pathlib.Path('package.yaml')
-text = pkg_path.read_text().splitlines()
-package_name = None
-test_suite = None
-
-for line in text:
-    line = line.strip()
-    if line.startswith('name:') and package_name is None:
-        package_name = line.split(':', 1)[1].strip()
-        break
-
-if package_name is None:
-    raise SystemExit('Could not determine package name from package.yaml')
-
-tests_section = False
-for raw in text:
-    if raw.startswith('tests:'):
-        tests_section = True
-        continue
-    if not tests_section:
-        continue
-    if not raw.startswith('  '):
-        break
-    stripped = raw.strip()
-    if stripped.endswith(':') and not stripped.startswith('#'):
-        test_suite = stripped[:-1]
-        break
-
-if test_suite is None:
-    test_suite = f"{package_name}-tests"
-
-print(f"CABAL_FILE={package_name}.cabal")
-print(f"PACKAGE_NAME={package_name}")
-print(f"TEST_SUITE_NAME={test_suite}")
-paths_module = f"Paths_{package_name.replace('-', '_')}"
-print(f"PATHS_MODULE={paths_module}")
-PY
+            PACKAGE_NAME=$(yq -r '.name' package.yaml)
+            TEST_SUITE_NAME=$(yq -r '(.tests | keys | .[0]) // ""' package.yaml)
+            if [ -z "$TEST_SUITE_NAME" ] || [ "$TEST_SUITE_NAME" = "null" ]; then
+              TEST_SUITE_NAME="${PACKAGE_NAME}-tests"
+            fi
+            CABAL_FILE="${PACKAGE_NAME}.cabal"
           else
             CABAL_FILE=$(ls *.cabal | head -n 1)
-            echo "CABAL_FILE=$CABAL_FILE" >> "$GITHUB_ENV"
             PACKAGE_NAME=${CABAL_FILE%.cabal}
-            echo "PACKAGE_NAME=$PACKAGE_NAME" >> "$GITHUB_ENV"
             TEST_SUITE_NAME=$(awk '/^test-suite / {print $2; exit}' "$CABAL_FILE")
             if [ -z "$TEST_SUITE_NAME" ]; then
               TEST_SUITE_NAME="${PACKAGE_NAME}-tests"
             fi
-            echo "TEST_SUITE_NAME=$TEST_SUITE_NAME" >> "$GITHUB_ENV"
-            PATHS_MODULE="Paths_${PACKAGE_NAME//-/_}"
-            echo "PATHS_MODULE=$PATHS_MODULE" >> "$GITHUB_ENV"
           fi
+          PATHS_MODULE="Paths_${PACKAGE_NAME//-/_}"
+          {
+            echo "CABAL_FILE=$CABAL_FILE"
+            echo "PACKAGE_NAME=$PACKAGE_NAME"
+            echo "TEST_SUITE_NAME=$TEST_SUITE_NAME"
+            echo "PATHS_MODULE=$PATHS_MODULE"
+          } >> "$GITHUB_ENV"
 
       - name: Install PostgreSQL client tools
         run: |
