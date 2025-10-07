@@ -47,6 +47,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
+import Data.OpenApi (NamedSchema(..), ToSchema(..))
 import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Text qualified as Text
@@ -72,6 +73,10 @@ data FirebaseAuthConfig = FirebaseAuthConfig
   { firebaseConfigProjectId :: Text,
     firebaseConfigApiKey :: Text,
     firebaseConfigAuthDomain :: Text,
+    firebaseConfigAppId :: Maybe Text,
+    firebaseConfigMessagingSenderId :: Maybe Text,
+    firebaseConfigStorageBucket :: Maybe Text,
+    firebaseConfigMeasurementId :: Maybe Text,
     firebaseConfigJwksUri :: Text,
     firebaseConfigAllowedSkew :: NominalDiffTime,
     firebaseConfigCacheTtl :: NominalDiffTime
@@ -83,6 +88,10 @@ data FirebaseAuth = FirebaseAuth
   { firebaseProjectId :: Text,
     firebaseApiKey :: Text,
     firebaseAuthDomain :: Text,
+    firebaseAppId :: Maybe Text,
+    firebaseMessagingSenderId :: Maybe Text,
+    firebaseStorageBucket :: Maybe Text,
+    firebaseMeasurementId :: Maybe Text,
     firebaseVerifyIdToken :: Text -> IO (Either FirebaseAuthError FirebaseUser)
   }
 
@@ -106,6 +115,7 @@ data FirebaseUser = FirebaseUser
     claims :: HashMap.HashMap Text Value
   }
   deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToSchema)
 
 instance Aeson.FromJSON FirebaseUser where
   parseJSON =
@@ -140,6 +150,10 @@ firebaseAuthDisabled =
     { firebaseProjectId = "firebase-disabled",
       firebaseApiKey = "firebase-disabled",
       firebaseAuthDomain = "firebase-disabled",
+      firebaseAppId = Nothing,
+      firebaseMessagingSenderId = Nothing,
+      firebaseStorageBucket = Nothing,
+      firebaseMeasurementId = Nothing,
       firebaseVerifyIdToken = \_ -> pure (Left (FirebaseAuthUnavailable "Firebase auth is not configured"))
     }
 
@@ -162,12 +176,20 @@ loadFirebaseAuthFromEnv = runExceptT $ do
           domain <- Text.pack <$> authDomainOverride
           guard (not (Text.null domain))
           pure domain
+  appId <- liftIO (fmap Text.pack <$> lookupEnv "FIREBASE_APP_ID")
+  messagingSenderId <- liftIO (fmap Text.pack <$> lookupEnv "FIREBASE_MESSAGING_SENDER_ID")
+  storageBucket <- liftIO (fmap Text.pack <$> lookupEnv "FIREBASE_STORAGE_BUCKET")
+  measurementId <- liftIO (fmap Text.pack <$> lookupEnv "FIREBASE_MEASUREMENT_ID")
   liftIO
     ( mkFirebaseAuth
         FirebaseAuthConfig
           { firebaseConfigProjectId = projectId,
             firebaseConfigApiKey = apiKey,
             firebaseConfigAuthDomain = authDomain,
+            firebaseConfigAppId = appId,
+            firebaseConfigMessagingSenderId = messagingSenderId,
+            firebaseConfigStorageBucket = storageBucket,
+            firebaseConfigMeasurementId = measurementId,
             firebaseConfigJwksUri = jwksUri,
             firebaseConfigAllowedSkew = clockSkew,
             firebaseConfigCacheTtl = defaultCacheTtl
@@ -201,6 +223,10 @@ mkFirebaseAuth config = do
       { firebaseProjectId = firebaseConfigProjectId config,
         firebaseApiKey = firebaseConfigApiKey config,
         firebaseAuthDomain = firebaseConfigAuthDomain config,
+        firebaseAppId = firebaseConfigAppId config,
+        firebaseMessagingSenderId = firebaseConfigMessagingSenderId config,
+        firebaseStorageBucket = firebaseConfigStorageBucket config,
+        firebaseMeasurementId = firebaseConfigMeasurementId config,
         firebaseVerifyIdToken = verifyFirebaseToken runtime
       }
   where
@@ -356,3 +382,6 @@ defaultSkew = 300
 -- | Default JWKS cache duration (10 minutes).
 defaultCacheTtl :: NominalDiffTime
 defaultCacheTtl = 600
+
+instance ToSchema Value where
+  declareNamedSchema _ = pure (NamedSchema (Just "JsonValue") mempty)

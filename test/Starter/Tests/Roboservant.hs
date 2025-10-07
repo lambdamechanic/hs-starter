@@ -80,7 +80,8 @@ fuzzesHealthcheck = do
                 dbConfig = dbCfg,
                 authorizeLogin = const (pure True),
                 firebaseAuth = firebaseAuthDisabled,
-                sessionConfig = testSessionConfig
+                sessionConfig = testSessionConfig,
+                frontendDir = "/opt/app/frontend"
               }
       let connectionCtx =
             unlines

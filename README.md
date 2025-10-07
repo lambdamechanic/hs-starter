@@ -35,6 +35,30 @@ dokku config:set hs-starter DOCKER_BUILDKIT=1
 
 With BuildKit active, the cached `apt` indexes are reused between builds and the image now provisions dependencies via the cache-aware mounts defined in the Dockerfile.
 
+## Frontend
+
+The single-page UI lives under `frontend/` and is built with SvelteKit + TypeScript. For local development:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host
+```
+
+The Docker build runs `npm run build` and places the static output in `/opt/app/frontend`; the Haskell application serves those assets directly via a Servant `Raw` route, so Dokku’s default nginx setup simply proxies everything to the Haskell process. When running the Haskell server locally against a production build, set `FRONTEND_DIST_DIR=frontend/build` (after `npm run build`) so the Servant route can find the compiled bundle without copying files into `/opt/app/frontend`.
+
+## API schema
+
+The backend exposes an OpenAPI v3 document at `/openapi.json`. Generate a fresh spec and TypeScript client with:
+
+```bash
+cabal build openapi
+$(cabal list-bin openapi) > frontend/openapi.json
+(cd frontend && npm run generate:api)
+```
+
+The SvelteKit frontend consumes the generated client in `frontend/src/lib/api`.
+
 ## Firebase configuration audit
 
 Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app. It will:
@@ -42,22 +66,12 @@ Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app
 - discover the Dokku app name from your `dokku` git remote (override with `scripts/check-firebase-config.sh <app>` if needed).
 - fall back to `bash ~/.dokku/contrib/dokku_client.sh` when you use the stock Dokku client shim.
 - require `FIREBASE_API_KEY` and `FIREBASE_PROJECT_ID`, deriving `FIREBASE_AUTH_DOMAIN` as `<project>.firebaseapp.com` when you haven’t configured a custom domain.
-- curl `https://<authDomain>/__/firebase/init.json` and warn when the derived firebaseapp.com host isn’t served by Firebase Hosting yet.
+- curl `https://<authDomain>/__/firebase/init.json` and warn when the derived firebaseapp.com host isn’t served by Firebase yet.
 - call the Identity Toolkit `accounts:createAuthUri` endpoint with a fake account to confirm the project/API key combination is valid.
 
 Successful runs end with `All Firebase checks passed.` A derived auth domain shows a `⚠` warning until you deploy Firebase Hosting—which is normal if you only use Firebase Auth. Any `✖` output indicates a real configuration issue (missing env var, invalid project, etc.) and the script prints instructions for filling in Dokku config.
 
-## Firebase configuration audit
 
-Run `scripts/check-firebase-config.sh` after wiring this template to a Dokku app. It will:
-
-- discover the app name from your `dokku` git remote (you can still pass it explicitly: `scripts/check-firebase-config.sh <app>`).
-- fall back to `bash ~/.dokku/contrib/dokku_client.sh` if you use the stock Dokku client shim.
-- require `FIREBASE_API_KEY` and `FIREBASE_PROJECT_ID`, deriving `FIREBASE_AUTH_DOMAIN` as `<project>.firebaseapp.com` whenever you haven’t configured a custom domain.
-- curl `https://<authDomain>/__/firebase/init.json` and warn if the default firebaseapp.com host hasn’t been put on Firebase Hosting yet.
-- call the Identity Toolkit `accounts:createAuthUri` endpoint with a fake account to confirm the project/key combination is real.
-
-Successful runs end with `All Firebase checks passed.` A derived auth domain produces a `⚠` warning until you deploy Firebase Hosting—which is expected if you only use Firebase Auth. Any `✖` output indicates a real configuration issue (missing env var, invalid project, etc.) and the script prints instructions for filling in the Dokku config.
 
 ## End-to-end Firebase login test
 

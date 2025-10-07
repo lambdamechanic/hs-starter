@@ -19,3 +19,8 @@ cabal.project.local~
 test/playwright/node_modules/
 test/playwright/test-results/
 .env
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/build/
+frontend/.svelte-kit/
