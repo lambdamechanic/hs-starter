@@ -101,10 +101,8 @@ jobs:
             cabal test --enable-coverage --enable-per-component --test-show-details=streaming
           fi
 
-      - name: Prepare http layer workdir
-        run: |
-          mkdir -p .ci-cache/http-layer
-          echo "WORKDIR=$(pwd)/.ci-cache/http-layer" >> "$GITHUB_ENV"
+      - name: Prepare http layer dist cache
+        run: mkdir -p .ci-cache/http-layer/dist-newstyle
 
       - name: Cache http layer dist-newstyle
         uses: actions/cache@v4
@@ -116,7 +114,7 @@ jobs:
             http-layer-${{ runner.os }}-
 
       - name: Integration test add_as_http_layer
-        run: scripts/test_add_http_layer.sh
+        run: scripts/test_add_http_layer.sh .ci-cache/http-layer/dist-newstyle
 
       - name: Generate coverage report (Codecov JSON)
         uses: 8c6794b6/hpc-codecov-action@v4
