@@ -32,15 +32,13 @@ import Starter.Server (HealthApi, HealthStatus, healthServer)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 import Test.Syd
-import Test.Syd.HList qualified as HList
 
 spec :: Spec
 spec =
   describe "Roboservant" $
     aroundAll withHealthAppEnv $ do
-      itWithAll "covers healthcheck" $ \(envs :: HList.HList '[AppEnv]) () ->
-        case envs of
-          (HList.HCons env HList.HNil) -> runProperty (roboservantHealthProperty (env :: AppEnv))
+      itWithOuter "covers healthcheck" $ \env ->
+        runProperty (roboservantHealthProperty env)
 
 -- | Wrapper for running Minithesis properties with project defaults.
 runProperty :: MP.Property -> IO ()
