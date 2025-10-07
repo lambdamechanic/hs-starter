@@ -255,7 +255,6 @@ test-suite hs-starter-tests
       Starter.Tests.HealthSpec
       Starter.Tests.Property
       Starter.Tests.PropertySpec
-      Starter.Tests.Roboservant
       Starter.Tests.RoboservantSpec
       Paths_hs_starter
   autogen-modules:

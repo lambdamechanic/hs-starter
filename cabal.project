@@ -16,7 +16,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/mwotton/roboservant.git
-  tag: 885d990bc016a0fb75dcaba76ffb515ddfdfe472
+  tag: 88b9bd0c905f77d1b021043022ff05c0cf9a318a
 
 source-repository-package
   type: git
@@ -73,4 +73,3 @@ source-repository-package
   location: https://github.com/iand675/hs-opentelemetry.git
   tag: bfbe8829b7c1b7afae01bedb3d9fa86bcaf853c0
   subdir: instrumentation/wai
-
