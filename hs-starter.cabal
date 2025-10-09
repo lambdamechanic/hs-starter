@@ -251,9 +251,7 @@ test-suite hs-starter-tests
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Starter.Tests.Health
       Starter.Tests.HealthSpec
-      Starter.Tests.Property
       Starter.Tests.PropertySpec
       Starter.Tests.RoboservantSpec
       Paths_hs_starter

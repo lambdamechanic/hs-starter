@@ -6,7 +6,6 @@ dist-newstyle/
 # Cabal helper files
 cabal.project.local
 !fixtures/sample/cabal.project.local
-!scripts/templates/cabal.project.local
 cabal.project.local~
 
 # Editor and tooling
@@ -16,8 +15,8 @@ cabal.project.local~
 .vscode/
 
 # Playwright artifacts
-test/playwright/node_modules/
-test/playwright/test-results/
+integration-test/node_modules/
+integration-test/test-results/
 .env
 
 # Frontend build artifacts
