@@ -16,8 +16,8 @@ cabal.project.local~
 .vscode/
 
 # Playwright artifacts
-test/playwright/node_modules/
-test/playwright/test-results/
+integration-test/node_modules/
+integration-test/test-results/
 .env
 
 # Frontend build artifacts

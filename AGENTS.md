@@ -17,7 +17,7 @@ Author schema changes in pgroll YAML first and append new files to `db/pgroll/.l
 All database interaction must use Squeal; do not introduce alternative PostgreSQL clients.
 
 ## Testing Guidelines
-`cabal test` runs sydtest with minithesis-based properties and tmp-postgres-backed smoke checks. Property suites live under `Starter.Tests.Property`; integration helpers use `Starter.Tests.Db`. When introducing new DB features, add tmp-postgres coverage or document why it is skipped. Target >85% coverage once the suite expands and note any regressions in PRs.
+`cabal test` runs sydtest with minithesis-based properties and tmp-postgres-backed smoke checks. Property suites live under `Starter.Tests.PropertySpec`; integration helpers use `Starter.Tests.Db`. When introducing new DB features, add tmp-postgres coverage or document why it is skipped. Target >85% coverage once the suite expands and note any regressions in PRs.
 For local coverage runs: ensure `dist-newstyle/cache/plan.json` exists (run `cabal build` once), then execute
 ```
 export PATH="$(pg_config --bindir):$PATH"

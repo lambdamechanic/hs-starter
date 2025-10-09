@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-PLAYWRIGHT_DIR="$REPO_ROOT/test/playwright"
+PLAYWRIGHT_DIR="$REPO_ROOT/integration-test"
 IMAGE=${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.44.1-jammy}
 DOKKU_CLI=${DOKKU_CLI:-"$HOME/.dokku/contrib/dokku_client.sh"}
 DOKKU_APP=${DOKKU_APP:-hs-starter}
