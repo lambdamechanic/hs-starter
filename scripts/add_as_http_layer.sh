@@ -18,7 +18,6 @@ fi
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TEMPLATE_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 SOURCE_PACKAGE="$TEMPLATE_ROOT/package.yaml"
-CABAL_LOCAL_TEMPLATE="$SCRIPT_DIR/templates/cabal.project.local"
 
 if [[ ! -f "$SOURCE_PACKAGE" ]]; then
   echo "error: package.yaml not found in template at $SOURCE_PACKAGE" >&2
@@ -206,23 +205,6 @@ if [[ -d "$TEMPLATE_ROOT/.github/workflows" ]]; then
     fi
   done
 fi
-
-cabal_local_update() {
-  local cabal_local="$TARGET/cabal.project.local"
-  local template="$CABAL_LOCAL_TEMPLATE"
-  if [[ ! -f "$template" ]]; then
-    echo "error: cabal.project.local template missing at $template" >&2
-    exit 1
-  fi
-  if [[ ! -f "$cabal_local" ]]; then
-    cp "$template" "$cabal_local"
-  elif ! grep -q 'records-sop:ghc-prim' "$cabal_local"; then
-    [[ -s "$cabal_local" ]] && printf '\n' >> "$cabal_local"
-    cat "$template" >> "$cabal_local"
-  fi
-}
-
-cabal_local_update
 
 python3 - "$SOURCE_PACKAGE" "$TARGET_PACKAGE" "$PREFIX" <<'PYEMBED'
 import sys
