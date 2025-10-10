@@ -77,6 +77,12 @@ fi
 
 "$SCRIPT_DIR/add_as_http_layer.sh" Sample.Web "$PROJECT_NAME" "$WORK_DIR"
 
+PREDEPLOY="$WORK_DIR/scripts/dokku-predeploy.sh"
+if [[ ! -x "$PREDEPLOY" ]]; then
+  echo "error: expected dokku predeploy script at $PREDEPLOY" >&2
+  exit 1
+fi
+
 if command -v hpack >/dev/null 2>&1; then
   hpack --force >/dev/null
 fi

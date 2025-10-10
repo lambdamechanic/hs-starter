@@ -264,6 +264,28 @@ copy_squealgen_script() {
   rewrite_file "$dest"
 }
 
+copy_dokku_predeploy_script() {
+  local src="$TEMPLATE_ROOT/scripts/dokku-predeploy.sh"
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  mkdir -p "$TARGET/scripts"
+  local dest="$TARGET/scripts/dokku-predeploy.sh"
+  local src_real
+  local dest_real
+  src_real=$(abs_path "$src")
+  dest_real=$(abs_path "$dest")
+  if [[ "$src_real" == "$dest_real" ]]; then
+    echo "warning: scripts/dokku-predeploy.sh source and destination are the same; skipping" >&2
+    return
+  fi
+
+  cp "$src" "$dest"
+  chmod +x "$dest"
+  rewrite_file "$dest"
+}
+
 export TEMPLATE_ROOT TARGET PREFIX PREFIX_PATH PACKAGE_NAME PACKAGE_MODULE PROJECT_NAME PROJECT_UNDERSCORE PROJECT_ENV_PREFIX PROJECT_DISPLAY
 export -f copy_file abs_path rewrite_file
 
@@ -298,6 +320,7 @@ if [[ -d "$TEMPLATE_ROOT/.github/workflows" ]]; then
 fi
 
 copy_squealgen_script
+copy_dokku_predeploy_script
 
 python3 - "$SOURCE_PACKAGE" "$TARGET_PACKAGE" "$PREFIX" <<'PYEMBED'
 import sys
