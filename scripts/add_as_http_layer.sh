@@ -85,6 +85,7 @@ import sys
 path = sys.argv[1]
 
 prefix = os.environ['PREFIX']
+prefix_path = os.environ['PREFIX_PATH']
 package_name = os.environ['PACKAGE_NAME']
 package_module = os.environ['PACKAGE_MODULE']
 project_name = os.environ['PROJECT_NAME']
@@ -100,8 +101,10 @@ except UnicodeDecodeError:
 
 original = content
 
+content = re.sub(r'\bStarter\.', f'{prefix}.', content)
+content = content.replace('Starter/', f'{prefix_path}/')
+
 if path.endswith('.hs'):
-    content = re.sub(r'\bStarter\.', f'{prefix}.', content)
     content = content.replace('Paths_hs_starter', f'Paths_{package_module}')
 
 content = content.replace('hs-starter', project_name)
@@ -176,6 +179,28 @@ copy_file() {
   rewrite_file "$dest"
 }
 
+copy_squealgen_script() {
+  local src="$TEMPLATE_ROOT/scripts/squealgen.sh"
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  mkdir -p "$TARGET/scripts"
+  local dest="$TARGET/scripts/squealgen.sh"
+  local src_real
+  local dest_real
+  src_real=$(abs_path "$src")
+  dest_real=$(abs_path "$dest")
+  if [[ "$src_real" == "$dest_real" ]]; then
+    echo "warning: scripts/squealgen.sh source and destination are the same; skipping" >&2
+    return
+  fi
+
+  cp "$src" "$dest"
+  chmod +x "$dest"
+  rewrite_file "$dest"
+}
+
 export TEMPLATE_ROOT TARGET PREFIX PREFIX_PATH PACKAGE_NAME PACKAGE_MODULE PROJECT_NAME PROJECT_UNDERSCORE PROJECT_ENV_PREFIX PROJECT_DISPLAY
 export -f copy_file abs_path rewrite_file
 
@@ -184,6 +209,8 @@ find "$TEMPLATE_ROOT" \
   -o -name '*.hs' -print | while read -r file; do
   copy_file "$file"
 done
+
+"$SCRIPT_DIR/update_agents_md.sh" "$PREFIX" "$PROJECT_NAME" "$TARGET"
 
 if [[ -d "$TEMPLATE_ROOT/db/pgroll" ]]; then
   copy_dir_if_missing "$TEMPLATE_ROOT/db/pgroll" "$TARGET/db/pgroll" "db/pgroll migrations"
@@ -205,6 +232,8 @@ if [[ -d "$TEMPLATE_ROOT/.github/workflows" ]]; then
     fi
   done
 fi
+
+copy_squealgen_script
 
 python3 - "$SOURCE_PACKAGE" "$TARGET_PACKAGE" "$PREFIX" <<'PYEMBED'
 import sys
