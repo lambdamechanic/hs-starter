@@ -179,6 +179,39 @@ copy_file() {
   rewrite_file "$dest"
 }
 
+copy_frontend_dir() {
+  local src="$TEMPLATE_ROOT/frontend"
+  if [[ ! -d "$src" ]]; then
+    return
+  fi
+
+  local dest="$TARGET/frontend"
+  if [[ ! -d "$dest" ]]; then
+    python3 - "$src" "$dest" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+ignore = shutil.ignore_patterns('node_modules', 'build', '.svelte-kit')
+shutil.copytree(src, dest, ignore=ignore)
+PY
+  else
+    echo "warning: frontend already exists at $dest; updating names only" >&2
+  fi
+
+  if [[ -d "$dest" ]]; then
+    find "$dest" -type f \
+      ! -path "$dest/node_modules/*" \
+      ! -path "$dest/build/*" \
+      ! -path "$dest/.svelte-kit/*" \
+      -print0 | while IFS= read -r -d '' file; do
+      rewrite_file "$file"
+    done
+  fi
+}
+
 copy_squealgen_script() {
   local src="$TEMPLATE_ROOT/scripts/squealgen.sh"
   if [[ ! -f "$src" ]]; then
@@ -211,6 +244,8 @@ find "$TEMPLATE_ROOT" \
 done
 
 "$SCRIPT_DIR/update_agents_md.sh" "$PREFIX" "$PROJECT_NAME" "$TARGET"
+
+copy_frontend_dir
 
 if [[ -d "$TEMPLATE_ROOT/db/pgroll" ]]; then
   copy_dir_if_missing "$TEMPLATE_ROOT/db/pgroll" "$TARGET/db/pgroll" "db/pgroll migrations"
