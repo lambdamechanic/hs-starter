@@ -140,6 +140,36 @@ copy_dir_if_missing() {
   fi
 }
 
+copy_or_overwrite_file() {
+  local src="$1"
+  local dest="$2"
+  local label="$3"
+
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [[ -e "$dest" ]]; then
+    if [[ -d "$dest" ]]; then
+      echo "warning: $label destination $dest is a directory; skipping" >&2
+      return
+    fi
+    local src_real
+    local dest_real
+    src_real=$(abs_path "$src")
+    dest_real=$(abs_path "$dest")
+    if [[ "$src_real" == "$dest_real" ]]; then
+      echo "warning: $label source and destination are the same; skipping" >&2
+      return
+    fi
+  fi
+
+  cp "$src" "$dest"
+  rewrite_file "$dest"
+}
+
 copy_file() {
   local src="$1"
   local rel="${src#$TEMPLATE_ROOT/}"
@@ -251,9 +281,8 @@ if [[ -d "$TEMPLATE_ROOT/db/pgroll" ]]; then
   copy_dir_if_missing "$TEMPLATE_ROOT/db/pgroll" "$TARGET/db/pgroll" "db/pgroll migrations"
 fi
 
-if [[ -f "$TEMPLATE_ROOT/Dockerfile" ]]; then
-  copy_dir_if_missing "$TEMPLATE_ROOT/Dockerfile" "$TARGET/Dockerfile" "Dockerfile"
-fi
+copy_or_overwrite_file "$TEMPLATE_ROOT/Dockerfile" "$TARGET/Dockerfile" "Dockerfile"
+copy_or_overwrite_file "$TEMPLATE_ROOT/app.json" "$TARGET/app.json" "app.json"
 
 if [[ -d "$TEMPLATE_ROOT/.github/workflows" ]]; then
   mkdir -p "$TARGET/.github/workflows"
