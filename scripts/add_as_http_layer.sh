@@ -140,6 +140,36 @@ copy_dir_if_missing() {
   fi
 }
 
+copy_or_overwrite_file() {
+  local src="$1"
+  local dest="$2"
+  local label="$3"
+
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [[ -e "$dest" ]]; then
+    if [[ -d "$dest" ]]; then
+      echo "warning: $label destination $dest is a directory; skipping" >&2
+      return
+    fi
+    local src_real
+    local dest_real
+    src_real=$(abs_path "$src")
+    dest_real=$(abs_path "$dest")
+    if [[ "$src_real" == "$dest_real" ]]; then
+      echo "warning: $label source and destination are the same; skipping" >&2
+      return
+    fi
+  fi
+
+  cp "$src" "$dest"
+  rewrite_file "$dest"
+}
+
 copy_file() {
   local src="$1"
   local rel="${src#$TEMPLATE_ROOT/}"
@@ -179,6 +209,39 @@ copy_file() {
   rewrite_file "$dest"
 }
 
+copy_frontend_dir() {
+  local src="$TEMPLATE_ROOT/frontend"
+  if [[ ! -d "$src" ]]; then
+    return
+  fi
+
+  local dest="$TARGET/frontend"
+  if [[ ! -d "$dest" ]]; then
+    python3 - "$src" "$dest" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+ignore = shutil.ignore_patterns('node_modules', 'build', '.svelte-kit')
+shutil.copytree(src, dest, ignore=ignore)
+PY
+  else
+    echo "warning: frontend already exists at $dest; updating names only" >&2
+  fi
+
+  if [[ -d "$dest" ]]; then
+    find "$dest" -type f \
+      ! -path "$dest/node_modules/*" \
+      ! -path "$dest/build/*" \
+      ! -path "$dest/.svelte-kit/*" \
+      -print0 | while IFS= read -r -d '' file; do
+      rewrite_file "$file"
+    done
+  fi
+}
+
 copy_squealgen_script() {
   local src="$TEMPLATE_ROOT/scripts/squealgen.sh"
   if [[ ! -f "$src" ]]; then
@@ -212,13 +275,14 @@ done
 
 "$SCRIPT_DIR/update_agents_md.sh" "$PREFIX" "$PROJECT_NAME" "$TARGET"
 
+copy_frontend_dir
+
 if [[ -d "$TEMPLATE_ROOT/db/pgroll" ]]; then
   copy_dir_if_missing "$TEMPLATE_ROOT/db/pgroll" "$TARGET/db/pgroll" "db/pgroll migrations"
 fi
 
-if [[ -f "$TEMPLATE_ROOT/Dockerfile" ]]; then
-  copy_dir_if_missing "$TEMPLATE_ROOT/Dockerfile" "$TARGET/Dockerfile" "Dockerfile"
-fi
+copy_or_overwrite_file "$TEMPLATE_ROOT/Dockerfile" "$TARGET/Dockerfile" "Dockerfile"
+copy_or_overwrite_file "$TEMPLATE_ROOT/app.json" "$TARGET/app.json" "app.json"
 
 if [[ -d "$TEMPLATE_ROOT/.github/workflows" ]]; then
   mkdir -p "$TARGET/.github/workflows"

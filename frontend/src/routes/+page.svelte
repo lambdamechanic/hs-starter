@@ -10,6 +10,7 @@
   $: configError = state.configError;
   $: displayName =
     profile?.firebase.name ?? profile?.firebase.email ?? profile?.firebase.uid ?? null;
+  const projectName = 'hs-starter';
 
   onMount(() => {
     initialiseSession();
@@ -25,7 +26,7 @@
 
   <section class="hero">
     <div class="hero-copy">
-      <p class="eyebrow">Full-stack starter</p>
+      <p class="eyebrow">{projectName}</p>
       <h1>Build production-ready Haskell services faster</h1>
       <p>
         hs-starter pairs a Servant backend, Squeal migrations, and a SvelteKit frontend with
