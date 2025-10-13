@@ -2,6 +2,12 @@
 
 Bootstrap Servant + Squeal application scaffolded with Cabal. Follow `AGENTS.md` for contributor guidance; roadmap and feature work are in progress.
 
+## Development tooling
+
+- run `make lint` to execute formatting (`ormolu`) and static analysis (`hlint`) checks across tracked Haskell sources without modifying files.
+- run `make lint-fix` to apply formatting and `hlint --refactor` suggestions in place (requires `apply-refact`).
+- run `scripts/install-pre-commit-hook.sh` to install a Git pre-commit hook that enforces `make lint` before each commit.
+
 ## Observability
 
 The application ships with OpenTelemetry instrumentation for both the WAI stack and Servant API. Configure the exporter by setting the standard OTLP environment variables before starting the service:
