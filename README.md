@@ -4,7 +4,8 @@ Bootstrap Servant + Squeal application scaffolded with Cabal. Follow `AGENTS.md`
 
 ## Development tooling
 
-- run `make lint` to execute formatting (`ormolu`) and static analysis (`hlint`) checks across tracked Haskell sources.
+- run `make lint` to execute formatting (`ormolu`) and static analysis (`hlint`) checks across tracked Haskell sources without modifying files.
+- run `make lint-fix` to apply formatting and `hlint --refactor` suggestions in place (requires `apply-refact`).
 - run `scripts/install-pre-commit-hook.sh` to install a Git pre-commit hook that enforces `make lint` before each commit.
 
 ## Observability

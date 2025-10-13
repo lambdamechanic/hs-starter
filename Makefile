@@ -1,6 +1,8 @@
-.PHONY: lint lint-hlint lint-ormolu
+.PHONY: lint lint-fix lint-hlint lint-ormolu lint-fix-hlint lint-fix-ormolu
 
 lint: lint-ormolu lint-hlint
+
+lint-fix: lint-fix-ormolu lint-fix-hlint
 
 lint-ormolu:
 	@echo "Checking formatting with ormolu..."
@@ -25,7 +27,49 @@ lint-hlint:
 	@echo "Running hlint..."
 	@files="$$(git ls-files '*.hs')"; \
 	if [ -n "$$files" ]; then \
-		hlint --config .hlint.yaml $$files; \
+		if command -v hlint >/dev/null 2>&1; then \
+			hlint --config .hlint.yaml $$files; \
+		else \
+			echo "hlint was not found in PATH; install it with 'cabal install hlint' or similar." >&2; \
+			exit 1; \
+		fi; \
 	else \
 		echo "No Haskell sources found; skipping hlint."; \
+	fi
+
+lint-fix-ormolu:
+	@echo "Formatting with ormolu..."
+	@files="$$(git ls-files '*.hs')"; \
+	if [ -n "$$files" ]; then \
+		if command -v ormolu >/dev/null 2>&1; then \
+			ormolu --mode inplace $$files; \
+		elif command -v cabal >/dev/null 2>&1; then \
+			if ! cabal run ormolu -- --mode inplace $$files; then \
+				echo "Unable to run ormolu. Install it with 'cabal install ormolu' or add it to your project." >&2; \
+				exit 1; \
+			fi; \
+		else \
+			echo "Neither ormolu nor cabal were found in PATH; cannot format sources." >&2; \
+			exit 1; \
+		fi; \
+	else \
+		echo "No Haskell sources found; skipping ormolu."; \
+	fi
+
+lint-fix-hlint:
+	@echo "Applying hlint suggestions..."
+	@files="$$(git ls-files '*.hs')"; \
+	if [ -n "$$files" ]; then \
+		if ! command -v hlint >/dev/null 2>&1; then \
+			echo "hlint was not found in PATH; install it with 'cabal install hlint' or similar." >&2; \
+			exit 1; \
+		fi; \
+		if command -v apply-refact >/dev/null 2>&1; then \
+			hlint --config .hlint.yaml --refactor --refactor-options="--inplace" $$files; \
+		else \
+			echo "apply-refact is required for --refactor. Install it with 'cabal install apply-refact'." >&2; \
+			exit 1; \
+		fi; \
+	else \
+		echo "No Haskell sources found; skipping hlint refactor."; \
 	fi
