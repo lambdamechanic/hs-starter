@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "[pre-commit] Running make lint..."
+if ! make lint; then
+  echo
+  echo "Pre-commit checks failed. Fix the issues above and try again."
+  exit 1
+fi
