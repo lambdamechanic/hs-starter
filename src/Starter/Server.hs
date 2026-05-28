@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +5,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Starter.Server
   ( app,
@@ -13,40 +13,43 @@ module Starter.Server
     appApiProxy,
     Api,
     HealthApi,
+    HealthzApi,
     FirebaseConfigApi,
     SessionApi,
     PrivateApi,
     server,
     healthServer,
+    healthzServer,
     appOpenApi,
     HealthStatus (..),
     HealthCheckReport (..),
     FirebaseClientConfig (..),
-    UserProfileResponse (..)
+    UserProfileResponse (..),
   )
 where
 
 import Control.Exception (SomeException, displayException, throwIO, try)
-import Control.Monad.IO.Class (liftIO)
 import Control.Lens ((.~), (?~))
-import Data.Aeson (FromJSON, ToJSON, Value, encode, object, (.=), (.:), (.:?))
+import Control.Monad.IO.Class (liftIO)
+import Data.Aeson (FromJSON, ToJSON, Value, encode, object, (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Builder (toLazyByteString)
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString.Lazy qualified as BL
 import Data.HashMap.Strict qualified as HashMap
 import Data.Hashable (Hashable)
-import Data.OpenApi (OpenApi, ToSchema(..))
-import Data.OpenApi.Lens qualified as OpenApiLens
 import Data.Maybe (listToMaybe)
+import Data.OpenApi (OpenApi, ToSchema (..))
+import Data.OpenApi.Lens qualified as OpenApiLens
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Version (showVersion)
-import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
 import Network.HTTP.Types (hContentType, status200)
 import Network.Wai (responseFile)
-import qualified Network.Wai as Wai
+import Network.Wai qualified as Wai
 import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ss404Handler)
+import OpenTelemetry.Instrumentation.Servant.Internal (HasEndpoint (getEndpoint))
+import Paths_hs_starter qualified as Paths
 import Servant
 import Servant.OpenApi (HasOpenApi (..), toOpenApi)
 import Squeal.PostgreSQL (Jsonb (..))
@@ -56,9 +59,8 @@ import Starter.Auth.Session (SessionConfig (..), SessionUser (..), mkSessionCook
 import Starter.Database.Connection (DbConfig (..), withAppConnection)
 import Starter.Database.Users (DbUserRow (..), insertLoginEvent, selectUserCount, upsertUser)
 import Starter.Env (AppEnv (..))
-import System.FilePath ((</>))
 import Starter.Prelude
-import Paths_hs_starter qualified as Paths
+import System.FilePath ((</>))
 import Web.Cookie (defaultSetCookie, renderSetCookie, sameSiteLax, setCookieExpires, setCookieHttpOnly, setCookieMaxAge, setCookieName, setCookiePath, setCookieSameSite, setCookieSecure, setCookieValue)
 
 data HealthStatus = HealthStatus
@@ -115,15 +117,17 @@ data ErrorResponse = ErrorResponse
 -- | Top-level API definition.
 type HealthApi = "health" :> Get '[JSON] HealthStatus
 
+type HealthzApi = "healthz" :> Get '[JSON] Value
+
 type FirebaseConfigApi = "firebase" :> "config" :> Get '[JSON] FirebaseClientConfig
 
 type SessionApi =
   "session"
     :> ( "exchange"
-          :> ReqBody '[JSON] SessionExchangeRequest
-          :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
-       :<|> "logout"
-          :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionLogoutResponse)
+           :> ReqBody '[JSON] SessionExchangeRequest
+           :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionExchangeResponse)
+           :<|> "logout"
+             :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] SessionLogoutResponse)
        )
 
 type PrivateApi =
@@ -132,14 +136,12 @@ type PrivateApi =
     :> Get '[JSON] UserProfileResponse
 
 -- | Combined API.
-type Api = HealthApi :<|> FirebaseConfigApi :<|> SessionApi :<|> PrivateApi
+type Api = HealthApi :<|> HealthzApi :<|> FirebaseConfigApi :<|> SessionApi :<|> PrivateApi
 
 -- | Route exposing the OpenAPI specification.
 type OpenApiRoute = "openapi.json" :> Get '[JSON] OpenApi
 
-
 type AppApi = OpenApiRoute :<|> Api :<|> Raw
-
 
 data ErrorBody = ErrorBody
   { code :: Text,
@@ -149,31 +151,29 @@ data ErrorBody = ErrorBody
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON, ToSchema)
 
-
 data FirebaseClientConfig = FirebaseClientConfig
-  { apiKey :: Text
-  , authDomain :: Text
-  , projectId :: Text
-  , appId :: Maybe Text
-  , messagingSenderId :: Maybe Text
-  , storageBucket :: Maybe Text
-  , measurementId :: Maybe Text
+  { apiKey :: Text,
+    authDomain :: Text,
+    projectId :: Text,
+    appId :: Maybe Text,
+    messagingSenderId :: Maybe Text,
+    storageBucket :: Maybe Text,
+    measurementId :: Maybe Text
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON, ToSchema)
 
 data UserProfileResponse = UserProfileResponse
-  { firebase :: FirebaseUser
-  , allowed :: Bool
+  { firebase :: FirebaseUser,
+    allowed :: Bool
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON, ToSchema)
 
-
-instance HasEndpoint api => HasEndpoint (AuthProtect tag :> api) where
+instance (HasEndpoint api) => HasEndpoint (AuthProtect tag :> api) where
   getEndpoint _ req = getEndpoint (Proxy :: Proxy api) req
 
-instance HasOpenApi api => HasOpenApi (AuthProtect tag :> api) where
+instance (HasOpenApi api) => HasOpenApi (AuthProtect tag :> api) where
   toOpenApi _ = toOpenApi (Proxy :: Proxy api)
 
 apiProxy :: Proxy Api
@@ -191,12 +191,18 @@ openApiServer = pure appOpenApi
 appOpenApi :: OpenApi
 appOpenApi =
   toOpenApi apiProxy
-    & OpenApiLens.info . OpenApiLens.title .~ "hs-starter API"
-    & OpenApiLens.info . OpenApiLens.version .~ Text.pack (showVersion Paths.version)
-    & OpenApiLens.info . OpenApiLens.description ?~ "OpenAPI specification for the hs-starter backend."
+    & OpenApiLens.info
+    . OpenApiLens.title
+    .~ "hs-starter API"
+      & OpenApiLens.info
+      . OpenApiLens.version
+    .~ Text.pack (showVersion Paths.version)
+      & OpenApiLens.info
+      . OpenApiLens.description
+    ?~ "OpenAPI specification for the hs-starter backend."
 
 server :: AppEnv -> Server Api
-server env = healthServer env :<|> firebaseConfigServer env :<|> sessionServer env :<|> privateServer env
+server env = healthServer env :<|> healthzServer :<|> firebaseConfigServer env :<|> sessionServer env :<|> privateServer env
 
 staticServer :: AppEnv -> Server Raw
 staticServer env = serveDirectoryWith (spaSettings (frontendDir env))
@@ -224,10 +230,8 @@ firebaseConfigServer env =
             measurementId = measurementId
           }
 
-
 healthServer :: AppEnv -> Server HealthApi
 healthServer env = do
-
   timestamp <- liftIO getCurrentTime
   let dbCfg = dbConfig env
       versionText = Text.pack (showVersion Paths.version)
@@ -300,6 +304,14 @@ healthServer env = do
                 version = versionText,
                 checks = HashMap.fromList [("database", databaseReport)]
               }
+
+healthzServer :: Server HealthzApi
+healthzServer =
+  pure
+    $ object
+      [ "app" .= ("hs-starter" :: Text),
+        "status" .= ("ok" :: Text)
+      ]
 
 sessionServer :: AppEnv -> Server SessionApi
 sessionServer env = sessionExchangeHandler env :<|> sessionLogoutHandler env
@@ -393,22 +405,23 @@ recordFirebaseLogin env DbUserRow {userId = dbUserId} firebaseUser@FirebaseUser 
 
 forbiddenLogin :: FirebaseUser -> ServerError
 forbiddenLogin FirebaseUser {uid = subject, issuer = issuerValue} =
-  attachJson err403
-    { errBody =
-        encode
-          ErrorResponse
-            { error =
-                ErrorBody
-                  { code = "LOGIN_NOT_ALLOWED",
-                    message = "User is not permitted to log in",
-                    details =
-                      object
-                        [ "uid" .= subject,
-                          "issuer" .= issuerValue
-                        ]
-                  }
-            }
-    }
+  attachJson
+    err403
+      { errBody =
+          encode
+            ErrorResponse
+              { error =
+                  ErrorBody
+                    { code = "LOGIN_NOT_ALLOWED",
+                      message = "User is not permitted to log in",
+                      details =
+                        object
+                          [ "uid" .= subject,
+                            "issuer" .= issuerValue
+                          ]
+                    }
+              }
+      }
 
 attachJson :: ServerError -> ServerError
 attachJson err =
@@ -423,4 +436,3 @@ resolveReturnTo = maybe "/" sanitize
        in if Text.isPrefixOf "//" target || Text.head target /= '/'
             then "/"
             else target
-

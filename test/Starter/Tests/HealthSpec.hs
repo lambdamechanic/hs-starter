@@ -10,16 +10,17 @@ where
 import Control.Exception (finally)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types (Object, Parser, parseEither, withObject, (.:))
+import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as BL
 import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Network.HTTP.Types (methodGet, status200)
 import Network.Wai (Application, pathInfo, rawPathInfo, requestMethod)
 import Network.Wai.Test
-import Starter.Database.Connection (DbConfig (..))
 import Starter.Auth.Firebase (firebaseAuthDisabled)
 import Starter.Auth.Session (SessionConfig (..))
-import qualified Data.ByteString.Char8 as BC
+import Starter.Database.Connection (DbConfig (..))
 import Starter.Env (AppEnv (..))
 import Starter.Prelude
 import Starter.Server (HealthCheckReport (..), HealthStatus (..), app)
@@ -40,6 +41,56 @@ spec :: Spec
 spec =
   describe "Health" $ do
     it "health returns 200 after DB init" healthOk
+    it "healthz returns public UptimeRobot JSON" healthzOk
+
+testEnv :: DbConfig -> AppEnv
+testEnv dbCfg =
+  AppEnv
+    { appPort = 0,
+      otelServiceName = "hs-starter-tests",
+      otelCollectorEndpoint = Nothing,
+      otelCollectorHeaders = Nothing,
+      dbConfig = dbCfg,
+      authorizeLogin = const (pure True),
+      firebaseAuth = firebaseAuthDisabled,
+      sessionConfig = testSessionConfig,
+      frontendDir = "/opt/app/frontend"
+    }
+
+dummyDbConfig :: DbConfig
+dummyDbConfig =
+  DbConfig
+    { dbHost = "127.0.0.1",
+      dbPort = 5432,
+      dbName = "unused",
+      dbUser = "unused",
+      dbPassword = Nothing
+    }
+
+healthzOk :: IO ()
+healthzOk = do
+  res <-
+    runSession
+      ( srequest
+          ( SRequest
+              defaultRequest
+                { requestMethod = methodGet,
+                  rawPathInfo = "/healthz",
+                  pathInfo = ["healthz"]
+                }
+              ""
+          )
+      )
+      (app (testEnv dummyDbConfig))
+  let code = simpleStatus res
+      body = simpleBody res
+  when (code /= status200)
+    $ expectationFailure
+      ("/healthz did not return 200, got: " <> show code <> "; body=" <> show body)
+  BL.toStrict body `shouldSatisfy` BC.isInfixOf (BC.pack "\"app\":\"hs-starter\"")
+  case Aeson.eitherDecode body >>= parseEither healthzPayloadParser of
+    Left err -> expectationFailure ("invalid healthz response: " <> err)
+    Right () -> pure ()
 
 healthOk :: IO ()
 healthOk = do
@@ -58,18 +109,7 @@ healthOk = do
                 "  user=" <> Text.unpack (dbUser dbCfg)
               ]
           cleanup = void (readProcessWithExitCode "docker" ["rm", "-f", container] "")
-          env =
-            AppEnv
-              { appPort = 0,
-                otelServiceName = "hs-starter-tests",
-                otelCollectorEndpoint = Nothing,
-                otelCollectorHeaders = Nothing,
-                dbConfig = dbCfg,
-                authorizeLogin = const (pure True),
-                firebaseAuth = firebaseAuthDisabled,
-                sessionConfig = testSessionConfig,
-                frontendDir = "/opt/app/frontend"
-              }
+          env = testEnv dbCfg
           application :: Application
           application = app env
       finally
@@ -89,8 +129,8 @@ healthOk = do
                 )
                 application
             let code = simpleStatus res
-            when (code /= status200) $
-              expectationFailure
+            when (code /= status200)
+              $ expectationFailure
                 ("/health did not return 200, got: " <> show code <> "; body=" <> show (simpleBody res))
             healthStatus <-
               case Aeson.eitherDecode (simpleBody res) of
@@ -100,6 +140,15 @@ healthOk = do
             validateHealthPayload env dbCfg healthStatus
         )
         cleanup
+
+healthzPayloadParser :: Aeson.Value -> Parser ()
+healthzPayloadParser =
+  withObject "healthz response" $ \obj -> do
+    appName :: Text <- obj .: "app"
+    when (appName /= "hs-starter") (fail "unexpected app")
+    statusText :: Text <- obj .: "status"
+    when (statusText /= "ok") (fail "unexpected status")
+    pure ()
 
 validateHealthPayload :: AppEnv -> DbConfig -> HealthStatus -> IO ()
 validateHealthPayload env dbCfg payload = do
@@ -171,10 +220,14 @@ withDockerPostgres = do
                     (c, _, _) <- readProcessWithExitCode "docker" ["exec", container, "pg_isready", "-U", "postgres", "-d", "hs_starter"] ""
                     case c of
                       ExitSuccess -> pure ()
-                      _ -> threadDelay 500000 >> waitLoop (n -1)
+                      _ -> threadDelay 500000 >> waitLoop (n - 1)
               waitLoop (40 :: Int)
-              pure (Right ( DbConfig {dbHost = "127.0.0.1", dbPort = fromIntegral port, dbName = "hs_starter", dbUser = "postgres", dbPassword = Just "postgres"}
-                           , container))
+              pure
+                ( Right
+                    ( DbConfig {dbHost = "127.0.0.1", dbPort = fromIntegral port, dbName = "hs_starter", dbUser = "postgres", dbPassword = Just "postgres"},
+                      container
+                    )
+                )
 
 -- | Apply pgroll migrations against the given DbConfig.
 applyPgrollMigrations :: String -> DbConfig -> IO ()
@@ -206,15 +259,15 @@ applyPgrollMigrations container DbConfig {dbHost, dbPort, dbName, dbUser, dbPass
                         "(attempt",
                         show attempt <> ")"
                       ]
-              pure $
-                "\n"
-                  <> unlines
-                    [ dockerHeader,
-                      "stdout:",
-                      indentBlock dout,
-                      "stderr:",
-                      indentBlock derr
-                    ]
+              pure
+                $ "\n"
+                <> unlines
+                  [ dockerHeader,
+                    "stdout:",
+                    indentBlock dout,
+                    "stderr:",
+                    indentBlock derr
+                  ]
         let baseContext =
               unlines
                 [ label <> " (attempt " <> show attempt <> ") exit=" <> show exitCode,

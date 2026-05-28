@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { FirebaseClientConfig } from '../models/FirebaseClientConfig';
 import type { HealthStatus } from '../models/HealthStatus';
+import type { JsonValue } from '../models/JsonValue';
 import type { SessionExchangeRequest } from '../models/SessionExchangeRequest';
 import type { SessionExchangeResponse } from '../models/SessionExchangeResponse';
 import type { SessionLogoutResponse } from '../models/SessionLogoutResponse';
@@ -20,6 +21,16 @@ export class DefaultService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/health',
+        });
+    }
+    /**
+     * @returns JsonValue
+     * @throws ApiError
+     */
+    public static getHealthz(): CancelablePromise<JsonValue> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/healthz',
         });
     }
     /**
